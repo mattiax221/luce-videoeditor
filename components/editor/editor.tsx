@@ -649,16 +649,16 @@ export function Editor() {
   }
 
   return (
-    <div className="flex h-dvh flex-col bg-background text-foreground">
-      <header className="flex shrink-0 items-center gap-2 border-b border-border px-3 pt-[max(0.45rem,env(safe-area-inset-top))] pb-2">
+    <div className="flex h-dvh flex-col overflow-hidden bg-background text-foreground">
+      <header className="z-40 flex shrink-0 items-center gap-2 border-b border-border bg-background px-3 pt-[max(0.4rem,env(safe-area-inset-top))] pb-2">
         <span className="grid size-8 shrink-0 place-items-center rounded-full border border-primary/40 bg-primary/10 text-primary">
           <Aperture className="size-4" />
         </span>
         <div className="min-w-0">
-          <p className="font-serif text-lg leading-none tracking-tight">Luce</p>
+          <p className="truncate font-serif text-lg leading-none tracking-tight">Luce</p>
           <p className="hidden text-[10px] text-muted-foreground sm:block">Taglia, colora, esporta</p>
         </div>
-        <div className="ml-auto flex items-center gap-1">
+        <div className="ml-auto flex shrink-0 items-center gap-1">
           <div className="flex rounded-lg bg-muted p-0.5" role="radiogroup" aria-label="Formato">
             {ASPECTS.map((item) => {
               const Icon = item.icon;
@@ -708,9 +708,9 @@ export function Editor() {
         </div>
       </header>
 
-      <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-          <div className="min-h-0 flex-1">
+      <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[minmax(0,1fr)_auto_auto] overflow-hidden pb-[env(safe-area-inset-bottom)] landscape:max-lg:grid-cols-[minmax(0,1fr)_minmax(13rem,36vw)] landscape:max-lg:grid-rows-[minmax(0,1fr)_auto] lg:grid-cols-[minmax(0,1fr)_400px] lg:grid-rows-[minmax(0,1fr)_auto] lg:pb-0">
+        <div className="relative min-h-0 max-lg:portrait:min-h-[13.5rem] landscape:max-lg:col-start-1 landscape:max-lg:row-start-1 lg:col-start-1 lg:row-start-1">
+          <div className="absolute inset-0">
             <PreviewStage
               frameRef={frameRef}
               overlayRef={overlayRef}
@@ -731,6 +731,8 @@ export function Editor() {
               onDemo={() => void createDemo()}
             />
           </div>
+        </div>
+          <div className="z-20 min-w-0 landscape:max-lg:col-span-2 landscape:max-lg:col-start-1 landscape:max-lg:row-start-2 lg:col-start-1 lg:row-start-2">
           <TimelineView
             clips={state.clips}
             overlays={state.overlays}
@@ -759,9 +761,9 @@ export function Editor() {
               else dispatch({ type: "addMarker", marker: { id: uid(), time, label: "Segno" } });
             }}
           />
-        </div>
+          </div>
 
-        <aside className="flex h-[min(300px,42dvh)] w-full shrink-0 flex-col border-t border-border pb-[env(safe-area-inset-bottom)] landscape:max-lg:h-[168px] lg:h-full lg:w-[400px] lg:border-t-0 lg:border-l">
+        <aside className="z-20 flex min-h-0 w-full flex-col overflow-hidden border-t border-border bg-background max-lg:portrait:h-[min(13.25rem,32dvh)] max-lg:portrait:max-h-[32dvh] landscape:max-lg:col-start-2 landscape:max-lg:row-start-1 landscape:max-lg:border-t-0 landscape:max-lg:border-l lg:col-start-2 lg:row-span-2 lg:row-start-1 lg:border-t-0 lg:border-l">
           <div className="flex shrink-0 gap-0.5 overflow-x-auto border-b border-border px-1.5 py-1.5">
             {TOOLS.map((tool) => {
               const Icon = tool.icon;
@@ -773,12 +775,12 @@ export function Editor() {
                   aria-pressed={active}
                   onClick={() => dispatch({ type: "setTool", tool: tool.id })}
                   className={cn(
-                    "flex min-w-[3.35rem] flex-1 flex-col items-center gap-1 rounded-xl px-1 py-1.5 text-[10px] font-medium",
+                    "flex min-w-0 flex-1 flex-col items-center gap-0.5 rounded-xl px-0.5 py-1.5 text-[10px] leading-tight font-medium",
                     active ? "bg-primary/15 text-primary" : "text-muted-foreground",
                   )}
                 >
                   <Icon className="size-5" />
-                  {tool.label}
+                  <span className="max-w-full truncate">{tool.label}</span>
                 </button>
               );
             })}

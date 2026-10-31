@@ -86,7 +86,7 @@ export function PreviewStage({
 
   return (
     <div className="relative flex h-full min-h-0 flex-col bg-[#070706]">
-      <div className="relative min-h-0 flex-1">
+      <div className="relative min-h-0 flex-1 overflow-hidden">
         <canvas
           ref={frameRef}
           width={size.width}
@@ -102,27 +102,29 @@ export function PreviewStage({
           aria-hidden
         />
         {!hasClips ? (
-          <div className="absolute inset-0 z-20 flex items-center justify-center p-5">
-            <div className="w-full max-w-sm text-center">
-              <p className="font-serif text-3xl leading-tight text-foreground">Il montaggio è vuoto</p>
-              <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-                Apri un video dal telefono. Resta sul dispositivo: niente account, niente upload.
-              </p>
-              <div className="mt-5 flex flex-col gap-2 sm:flex-row sm:justify-center">
-                <button
-                  type="button"
-                  onClick={onOpen}
-                  className="h-11 rounded-full bg-primary px-5 text-sm font-medium text-primary-foreground"
-                >
-                  Apri video
-                </button>
-                <button
-                  type="button"
-                  onClick={onDemo}
-                  className="h-11 rounded-full border border-border px-5 text-sm font-medium text-foreground"
-                >
-                  Prova con due clip
-                </button>
+          <div className="absolute inset-0 z-20 overflow-hidden @container">
+            <div className="flex h-full items-center justify-center px-4 py-3">
+              <div className="w-full max-w-md text-center">
+                <p className="font-serif text-2xl leading-none text-balance text-foreground lg:text-3xl">Il montaggio è vuoto</p>
+                <p className="mx-auto mt-2 max-w-[18rem] text-[13px] leading-snug text-muted-foreground">
+                  Apri un video dal telefono. Resta sul dispositivo: niente account, niente upload.
+                </p>
+                <div className="mx-auto mt-3 flex w-full max-w-[18rem] flex-col gap-2 @min-[28rem]:max-w-none @min-[28rem]:flex-row @min-[28rem]:justify-center">
+                  <button
+                    type="button"
+                    onClick={onOpen}
+                    className="h-11 rounded-full bg-primary px-5 text-sm font-medium text-primary-foreground @min-[28rem]:min-w-40"
+                  >
+                    Apri video
+                  </button>
+                  <button
+                    type="button"
+                    onClick={onDemo}
+                    className="h-11 rounded-full border border-border px-5 text-sm font-medium text-foreground @min-[28rem]:min-w-40"
+                  >
+                    Prova con due clip
+                  </button>
+                </div>
               </div>
             </div>
           </div>

@@ -64,6 +64,7 @@ export function TimelineView({
   const [pps, setPps] = useState(64);
   const [scrollLeft, setScrollLeft] = useState(0);
   const [viewWidth, setViewWidth] = useState(360);
+  const [dense, setDense] = useState(false);
   const scrollerRef = useRef<HTMLDivElement>(null);
   const trackRef = useRef<HTMLDivElement>(null);
   const playheadRef = useRef<HTMLDivElement>(null);
@@ -72,11 +73,23 @@ export function TimelineView({
   const dragRef = useRef<{ id: string; edge: "in" | "out"; history: boolean; originX: number; origin: number } | null>(null);
   const moveRef = useRef<{ id: string; startX: number; moved: boolean } | null>(null);
   const width = Math.max(duration, 1) * pps + 48;
-  const headHeight = RULER + TITLE_H + OVER_H + VIDEO_H + AUDIO_H + 16;
+  const rulerH = dense ? 18 : RULER;
+  const videoH = dense ? 44 : VIDEO_H;
+  const showTitles = titles.length > 0;
+  const showOverlays = overlays.length > 0;
+  const showAudio = audios.length > 0;
 
   useEffect(() => {
     playingRef.current = playing;
   }, [playing]);
+
+  useEffect(() => {
+    const media = window.matchMedia("(max-width: 1023px) and (max-height: 500px)");
+    const apply = () => setDense(media.matches);
+    apply();
+    media.addEventListener("change", apply);
+    return () => media.removeEventListener("change", apply);
+  }, []);
 
   useEffect(() => {
     const scroller = scrollerRef.current;
@@ -149,14 +162,17 @@ export function TimelineView({
   for (let second = firstTick; second <= lastTick; second += 1) ticks.push(second);
 
   return (
-    <section className="shrink-0 border-t border-border bg-[#141310]">
-      <div className="flex items-center gap-2 px-3 py-2">
+    <section className="border-t border-border bg-[#141310]">
+      <div className={cn("flex items-center gap-2 px-3", dense ? "py-1" : "py-2")}>
         <button
           type="button"
           aria-label={playing ? "Pausa" : "Play"}
           disabled={!engine || clips.length === 0 || recording}
           onClick={onToggle}
-          className="grid size-11 place-items-center rounded-full bg-primary text-primary-foreground disabled:opacity-40"
+          className={cn(
+            "grid place-items-center rounded-full bg-primary text-primary-foreground disabled:opacity-40",
+            dense ? "size-9" : "size-11",
+          )}
         >
           {playing ? <Pause className="size-5 fill-current" /> : <Play className="size-5 translate-x-0.5 fill-current" />}
         </button>
@@ -201,16 +217,22 @@ export function TimelineView({
       >
         <div className="flex min-w-full">
           <div className="sticky left-0 z-20 w-7 shrink-0 bg-[#141310]">
-            <div style={{ height: RULER }} />
-            <LaneLabel height={TITLE_H}>T</LaneLabel>
-            <LaneLabel height={OVER_H}>S</LaneLabel>
-            <LaneLabel height={VIDEO_H}>V</LaneLabel>
-            <LaneLabel height={AUDIO_H}>A</LaneLabel>
+            <div style={{ height: rulerH }} />
+            <div className={cn(!showTitles && "max-lg:hidden")}>
+              <LaneLabel height={TITLE_H}>T</LaneLabel>
+            </div>
+            <div className={cn(!showOverlays && "max-lg:hidden")}>
+              <LaneLabel height={OVER_H}>S</LaneLabel>
+            </div>
+            <LaneLabel height={videoH}>V</LaneLabel>
+            <div className={cn(!showAudio && "max-lg:hidden")}>
+              <LaneLabel height={AUDIO_H}>A</LaneLabel>
+            </div>
           </div>
           <div ref={trackRef} className="relative" style={{ width }}>
             <div
               className="relative touch-none"
-              style={{ height: RULER }}
+              style={{ height: rulerH }}
               onPointerDown={(event) => {
                 if (recording) return;
                 event.currentTarget.setPointerCapture(event.pointerId);
@@ -243,7 +265,7 @@ export function TimelineView({
                 </button>
               ))}
             </div>
-            <div className="relative mt-1" style={{ height: TITLE_H }}>
+            <div className={cn("relative mt-1", !showTitles && "max-lg:hidden")} style={{ height: TITLE_H }}>
               {titles.map((title) => (
                 <button
                   key={title.id}
@@ -262,7 +284,7 @@ export function TimelineView({
                 </button>
               ))}
             </div>
-            <div className="relative mt-1" style={{ height: OVER_H }}>
+            <div className={cn("relative mt-1", !showOverlays && "max-lg:hidden")} style={{ height: OVER_H }}>
               {overlays.map((clip) => {
                 const span = clipTimelineDuration(clip);
                 return (
@@ -284,7 +306,7 @@ export function TimelineView({
                 );
               })}
             </div>
-            <div className="relative mt-1" style={{ height: VIDEO_H }}>
+            <div className="relative mt-1" style={{ height: videoH }}>
               {clips.length === 0 ? (
                 <div className="flex h-full items-center rounded-xl border border-dashed border-border px-3 text-xs text-muted-foreground">
                   Le clip compariranno qui
@@ -392,7 +414,7 @@ export function TimelineView({
                 })
               )}
             </div>
-            <div className="relative mt-1" style={{ height: AUDIO_H }}>
+            <div className={cn("relative mt-1", !showAudio && "max-lg:hidden")} style={{ height: AUDIO_H }}>
               {audios.map((clip) => {
                 const span = audioDuration(clip);
                 return (
@@ -424,8 +446,8 @@ export function TimelineView({
             </div>
             <div
               ref={playheadRef}
-              className="pointer-events-none absolute top-0 z-10 w-px bg-primary"
-              style={{ left: 0, height: headHeight }}
+              className="pointer-events-none absolute top-0 bottom-0 z-10 w-px bg-primary"
+              style={{ left: 0 }}
             >
               <div className="absolute -left-1.5 size-0 border-x-[6px] border-t-[8px] border-x-transparent border-t-primary" />
             </div>
