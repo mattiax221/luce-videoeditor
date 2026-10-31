@@ -196,7 +196,7 @@ export function PreviewStage({
           </div>
         ) : null}
       </div>
-      <label className="relative z-30 block px-4 pt-2 pb-3">
+      <label className="relative z-30 block px-5 pt-0 pb-1">
         <span className="sr-only">Posizione nel montaggio</span>
         <input
           ref={scrub}

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
-import { Flag, Pause, Play, ZoomIn, ZoomOut } from "lucide-react";
+import { Flag, Plus, ZoomIn, ZoomOut } from "lucide-react";
 import type { PlaybackEngine } from "@/lib/engine";
 import { edgePoints, snapTime } from "@/lib/snap";
 import { clipStart, clipTimelineDuration, audioDuration } from "@/lib/timeline";
@@ -30,7 +30,7 @@ export function TimelineView({
   recording,
   duration,
   engine,
-  onToggle,
+  onAdd,
   onSelectClip,
   onSelectOverlay,
   onSelectAudio,
@@ -52,7 +52,7 @@ export function TimelineView({
   recording: boolean;
   duration: number;
   engine: PlaybackEngine | null;
-  onToggle: () => void;
+  onAdd: () => void;
   onSelectClip: (id: string) => void;
   onSelectOverlay: (id: string) => void;
   onSelectAudio: (id: string) => void;
@@ -162,27 +162,21 @@ export function TimelineView({
   for (let second = firstTick; second <= lastTick; second += 1) ticks.push(second);
 
   return (
-    <section className="border-t border-border bg-[#141310]">
-      <div className={cn("flex items-center gap-3 px-3", dense ? "py-1.5" : "py-2.5")}>
+    <section className="border-t border-white/5 bg-[#141310]">
+      <div className={cn("flex items-center gap-1 px-2", dense ? "py-1" : "py-1.5")}>
         <button
           type="button"
-          aria-label={playing ? "Pausa" : "Play"}
-          disabled={!engine || clips.length === 0 || recording}
-          onClick={onToggle}
-          className={cn(
-            "grid place-items-center rounded-full bg-primary text-primary-foreground disabled:opacity-40",
-            dense ? "size-10" : "size-12",
-          )}
+          onClick={onAdd}
+          disabled={recording}
+          className="inline-flex h-8 items-center gap-1 rounded-full bg-white/10 px-3 text-xs font-medium disabled:opacity-40"
         >
-          {playing ? <Pause className="size-5 fill-current" /> : <Play className="size-5 translate-x-0.5 fill-current" />}
+          <Plus className="size-3.5" />
+          Aggiungi
         </button>
-        <div className="min-w-0">
-          <p className="text-[11px] tracking-[0.14em] text-muted-foreground uppercase">Timeline</p>
-          <span ref={clockRef} className="text-base tabular-nums">
-            {formatTime(0)} / {formatTime(duration)}
-          </span>
-        </div>
-        <div className="ml-auto flex items-center gap-1">
+        <span ref={clockRef} className="sr-only">
+          {formatTime(0)} / {formatTime(duration)}
+        </span>
+        <div className="ml-auto flex items-center">
           <button
             type="button"
             aria-label="Segna o togli il segno"

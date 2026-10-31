@@ -8,7 +8,8 @@ import {
   Gauge,
   Loader2,
   Palette,
-  Plus,
+  Pause,
+  Play,
   RectangleHorizontal,
   RectangleVertical,
   Redo2,
@@ -46,17 +47,16 @@ import { attachUrls, clearProject, loadProject, saveProject } from "@/lib/projec
 import { measureShake } from "@/lib/stabilize";
 import { projectSize } from "@/lib/frame";
 import { canSplit, clampEdge, clipStart, totalDuration } from "@/lib/timeline";
-import { exportFilename, uid } from "@/lib/time";
+import { exportFilename, formatTime, uid } from "@/lib/time";
 import { PIP_TRANSFORM, type Aspect, type ClipPatch, type Grade, type OverlayClip, type TitleCard, type TitlePatch, type Tool } from "@/lib/types";
 import { cn } from "cn";
 
 const TOOLS: { id: Tool; label: string; icon: typeof Scissors }[] = [
   { id: "cut", label: "Taglio", icon: Scissors },
-  { id: "color", label: "Colore", icon: Palette },
-  { id: "text", label: "Testo", icon: Type },
   { id: "audio", label: "Audio", icon: AudioLines },
+  { id: "text", label: "Testo", icon: Type },
+  { id: "color", label: "Colore", icon: Palette },
   { id: "speed", label: "Velocità", icon: Gauge },
-  { id: "export", label: "Esporta", icon: Download },
 ];
 
 const ASPECTS: { id: Aspect; label: string; icon: typeof Square }[] = [
@@ -82,12 +82,28 @@ export function Editor() {
   const transcribeAbort = useRef<AbortController | null>(null);
   const [micOn, setMicOn] = useState(false);
   const [storeReady, setStoreReady] = useState(false);
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const toolSeen = useRef(state.tool);
   const urlsRef = useRef<Set<string>>(new Set());
   const pendingSeek = useRef<number | null>(null);
   const stateRef = useRef(state);
   const engineRef = useRef(engine);
   stateRef.current = state;
   engineRef.current = engine;
+
+  useEffect(() => {
+    if (toolSeen.current === state.tool) return;
+    toolSeen.current = state.tool;
+    setSheetOpen(true);
+  }, [state.tool]);
+
+  function openTool(id: Tool) {
+    if (state.tool === id) {
+      setSheetOpen((open) => !open);
+      return;
+    }
+    dispatch({ type: "setTool", tool: id });
+  }
 
   useEffect(() => {
     const frame = frameRef.current;
@@ -649,17 +665,14 @@ export function Editor() {
   }
 
   return (
-    <div className="flex h-dvh flex-col overflow-hidden bg-background text-foreground">
-      <header className="z-40 flex shrink-0 items-center gap-2.5 border-b border-border bg-background px-3 pt-[max(0.55rem,env(safe-area-inset-top))] pb-2.5">
+    <div className="flex h-dvh flex-col overflow-hidden bg-[#0c0b09] text-foreground">
+      <header className="z-40 flex shrink-0 items-center gap-2 bg-[#0c0b09] px-3 pt-[max(0.45rem,env(safe-area-inset-top))] pb-2">
         <span className="grid size-8 shrink-0 place-items-center rounded-full border border-primary/40 bg-primary/10 text-primary">
           <Aperture className="size-4" />
         </span>
-        <div className="min-w-0">
-          <p className="truncate font-serif text-lg leading-none tracking-tight">Luce</p>
-          <p className="hidden text-[10px] text-muted-foreground sm:block">Taglia, colora, esporta</p>
-        </div>
-        <div className="ml-auto flex shrink-0 items-center gap-1.5">
-          <div className="flex rounded-lg bg-muted p-1" role="radiogroup" aria-label="Formato">
+        <p className="min-w-0 truncate font-serif text-lg leading-none tracking-tight">Luce</p>
+        <div className="ml-auto flex shrink-0 items-center gap-1">
+          <div className="flex rounded-full bg-muted p-0.5" role="radiogroup" aria-label="Formato">
             {ASPECTS.map((item) => {
               const Icon = item.icon;
               const active = state.aspect === item.id;
@@ -672,8 +685,8 @@ export function Editor() {
                   aria-label={item.label}
                   onClick={() => dispatch({ type: "setAspect", aspect: item.id })}
                   className={cn(
-                    "grid size-9 place-items-center rounded-md",
-                    active ? "bg-background text-primary shadow-sm" : "text-muted-foreground",
+                    "grid size-8 place-items-center rounded-full",
+                    active ? "bg-background text-primary" : "text-muted-foreground",
                   )}
                 >
                   <Icon className="size-4" />
@@ -681,36 +694,27 @@ export function Editor() {
               );
             })}
           </div>
-          <Button
+          <button
             type="button"
-            size="icon-lg"
-            variant="ghost"
-            aria-label="Annulla"
-            disabled={state.past.length === 0 || snap.recording}
-            onClick={() => dispatch({ type: "undo" })}
+            className="h-8 rounded-full bg-muted px-2.5 text-[11px] font-semibold tracking-wide"
+            onClick={() => openTool("export")}
           >
-            <Undo2 />
-          </Button>
-          <Button
+            {state.quality}P
+          </button>
+          <button
             type="button"
-            size="icon-lg"
-            variant="ghost"
-            aria-label="Ripeti"
-            disabled={state.future.length === 0 || snap.recording}
-            onClick={() => dispatch({ type: "redo" })}
+            className="inline-flex h-8 items-center gap-1 rounded-full bg-primary px-3 text-sm font-semibold text-primary-foreground"
+            onClick={() => openTool("export")}
           >
-            <Redo2 />
-          </Button>
-          <Button type="button" className="h-10 px-3" onClick={() => fileRef.current?.click()} disabled={snap.recording}>
-            <Plus />
-            <span className="hidden min-[420px]:inline">Aggiungi</span>
-          </Button>
+            <Download className="size-3.5" />
+            Esporta
+          </button>
         </div>
       </header>
 
-      <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[auto_auto_minmax(0,1fr)] overflow-hidden pb-[env(safe-area-inset-bottom)] landscape:max-lg:grid-cols-[minmax(0,1fr)_minmax(15rem,38vw)] landscape:max-lg:grid-rows-[minmax(0,1fr)_auto] lg:grid-cols-[minmax(0,1fr)_400px] lg:grid-rows-[minmax(0,1fr)_auto] lg:pb-0">
-        <div className="relative min-h-0 max-lg:portrait:h-[max(17.5rem,min(36dvh,23rem))] landscape:max-lg:col-start-1 landscape:max-lg:row-start-1 lg:col-start-1 lg:row-start-1">
-          <div className="absolute inset-0">
+      <div className="relative flex min-h-0 flex-1 flex-col">
+      <div className="relative min-h-[10rem] flex-1">
+        <div className="absolute inset-0">
             <PreviewStage
               frameRef={frameRef}
               overlayRef={overlayRef}
@@ -730,9 +734,31 @@ export function Editor() {
               onOpen={() => fileRef.current?.click()}
               onDemo={() => void createDemo()}
             />
-          </div>
         </div>
-          <div className="z-20 min-w-0 landscape:max-lg:col-span-2 landscape:max-lg:col-start-1 landscape:max-lg:row-start-2 lg:col-start-1 lg:row-start-2">
+      </div>
+
+      <div className="grid h-12 shrink-0 grid-cols-[1fr_auto_1fr] items-center bg-[#0c0b09] px-2">
+        <div className="flex items-center">
+          <Button type="button" size="icon" variant="ghost" aria-label="Annulla" disabled={state.past.length === 0 || snap.recording} onClick={() => dispatch({ type: "undo" })}>
+            <Undo2 />
+          </Button>
+          <Button type="button" size="icon" variant="ghost" aria-label="Ripeti" disabled={state.future.length === 0 || snap.recording} onClick={() => dispatch({ type: "redo" })}>
+            <Redo2 />
+          </Button>
+          <span className="min-w-14 text-xs tabular-nums text-foreground/90">{formatTime(snap.time)}</span>
+        </div>
+        <button
+          type="button"
+          aria-label={snap.playing ? "Pausa" : "Play"}
+          disabled={state.clips.length === 0 || snap.recording}
+          onClick={() => engine?.toggle()}
+          className="grid size-11 place-items-center rounded-full bg-primary text-primary-foreground disabled:opacity-40"
+        >
+          {snap.playing ? <Pause className="size-5 fill-current" /> : <Play className="size-5 translate-x-0.5 fill-current" />}
+        </button>
+        <span className="pr-2 text-right text-xs tabular-nums text-muted-foreground">{formatTime(duration)}</span>
+      </div>
+
           <TimelineView
             clips={state.clips}
             overlays={state.overlays}
@@ -747,7 +773,7 @@ export function Editor() {
             recording={snap.recording}
             duration={duration}
             engine={engine}
-            onToggle={() => engine?.toggle()}
+            onAdd={() => fileRef.current?.click()}
             onSelectClip={(id) => dispatch({ type: "selectClip", id })}
             onSelectOverlay={(id) => dispatch({ type: "selectOverlay", id })}
             onSelectAudio={(id) => dispatch({ type: "selectAudio", id })}
@@ -761,31 +787,9 @@ export function Editor() {
               else dispatch({ type: "addMarker", marker: { id: uid(), time, label: "Segno" } });
             }}
           />
-          </div>
 
-        <aside className="z-20 flex min-h-0 w-full flex-col overflow-hidden border-t border-border bg-background landscape:max-lg:col-start-2 landscape:max-lg:row-start-1 landscape:max-lg:border-t-0 landscape:max-lg:border-l lg:col-start-2 lg:row-span-2 lg:row-start-1 lg:border-t-0 lg:border-l">
-          <div className="flex shrink-0 gap-1 overflow-x-auto border-b border-border px-2 py-2">
-            {TOOLS.map((tool) => {
-              const Icon = tool.icon;
-              const active = state.tool === tool.id;
-              return (
-                <button
-                  key={tool.id}
-                  type="button"
-                  aria-pressed={active}
-                  onClick={() => dispatch({ type: "setTool", tool: tool.id })}
-                  className={cn(
-                    "flex min-h-14 min-w-0 flex-1 flex-col items-center justify-center gap-1 rounded-xl px-1 py-2 text-xs leading-tight font-medium landscape:max-lg:min-h-12 landscape:max-lg:text-[11px]",
-                    active ? "bg-primary/15 text-primary" : "text-muted-foreground",
-                  )}
-                >
-                  <Icon className="size-5" />
-                  <span className="max-w-full truncate">{tool.label}</span>
-                </button>
-              );
-            })}
-          </div>
-          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4">
+        {sheetOpen ? (
+          <section className="absolute inset-x-0 bottom-0 z-30 max-h-[min(46dvh,22rem)] overflow-y-auto overscroll-contain border-t border-border bg-background px-4 py-4 shadow-[0_-16px_40px_rgba(0,0,0,0.45)]">
             {state.tool === "cut" ? (
               <CutPanel
                 clips={state.clips}
@@ -903,9 +907,31 @@ export function Editor() {
                 onShare={() => void shareExport()}
               />
             ) : null}
-          </div>
-        </aside>
+          </section>
+        ) : null}
       </div>
+
+        <nav className="relative z-40 flex shrink-0 gap-1 border-t border-border bg-[#0c0b09] px-1 pt-1 pb-[max(0.35rem,env(safe-area-inset-bottom))]">
+          {TOOLS.map((tool) => {
+            const Icon = tool.icon;
+            const active = sheetOpen && state.tool === tool.id;
+            return (
+              <button
+                key={tool.id}
+                type="button"
+                aria-pressed={active}
+                onClick={() => openTool(tool.id)}
+                className={cn(
+                  "flex min-h-14 min-w-0 flex-1 flex-col items-center justify-center gap-1 rounded-xl px-1 py-1.5 text-[11px] leading-tight font-medium",
+                  active ? "text-primary" : "text-muted-foreground",
+                )}
+              >
+                <Icon className="size-5" />
+                <span className="max-w-full truncate">{tool.label}</span>
+              </button>
+            );
+          })}
+        </nav>
 
       <input
         ref={fileRef}
