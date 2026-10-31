@@ -33,11 +33,11 @@ export function ColorWheel({
   }
 
   return (
-    <div className="flex flex-col items-center gap-1.5">
+    <div className="flex w-full min-w-0 flex-1 flex-col items-center gap-2">
       <div
         ref={pad}
         aria-label={`${label}, trascina per spostare il colore`}
-        className="relative size-[4.6rem] touch-none rounded-full shadow-[inset_0_0_0_1px_rgba(255,255,255,0.08)] sm:size-24"
+        className="relative aspect-square w-full max-w-28 touch-none rounded-full shadow-[inset_0_0_0_1px_rgba(255,255,255,0.08)]"
         style={{
           background:
             "radial-gradient(circle, #141311 0 22%, transparent 23%), conic-gradient(from 90deg, #e15b4a, #e4a04a, #d6e07a, #67c17a, #6ec8d6, #6a7de0, #c46ad4, #e15b4a)",

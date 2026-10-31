@@ -62,7 +62,7 @@ export function ColorPanel({
           </button>
         ))}
       </div>
-      <div className="flex items-start justify-between gap-2">
+      <div className="flex items-start justify-between gap-3">
         <ColorWheel label="Ombre" hint="Lift" value={grade.lift} onChange={(value, history) => setWheel("lift", value, history)} />
         <ColorWheel label="Mezzi" hint="Gamma" value={grade.gamma} onChange={(value, history) => setWheel("gamma", value, history)} />
         <ColorWheel label="Luci" hint="Gain" value={grade.gain} onChange={(value, history) => setWheel("gain", value, history)} />

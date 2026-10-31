@@ -650,7 +650,7 @@ export function Editor() {
 
   return (
     <div className="flex h-dvh flex-col overflow-hidden bg-background text-foreground">
-      <header className="z-40 flex shrink-0 items-center gap-2 border-b border-border bg-background px-3 pt-[max(0.4rem,env(safe-area-inset-top))] pb-2">
+      <header className="z-40 flex shrink-0 items-center gap-2.5 border-b border-border bg-background px-3 pt-[max(0.55rem,env(safe-area-inset-top))] pb-2.5">
         <span className="grid size-8 shrink-0 place-items-center rounded-full border border-primary/40 bg-primary/10 text-primary">
           <Aperture className="size-4" />
         </span>
@@ -658,8 +658,8 @@ export function Editor() {
           <p className="truncate font-serif text-lg leading-none tracking-tight">Luce</p>
           <p className="hidden text-[10px] text-muted-foreground sm:block">Taglia, colora, esporta</p>
         </div>
-        <div className="ml-auto flex shrink-0 items-center gap-1">
-          <div className="flex rounded-lg bg-muted p-0.5" role="radiogroup" aria-label="Formato">
+        <div className="ml-auto flex shrink-0 items-center gap-1.5">
+          <div className="flex rounded-lg bg-muted p-1" role="radiogroup" aria-label="Formato">
             {ASPECTS.map((item) => {
               const Icon = item.icon;
               const active = state.aspect === item.id;
@@ -672,7 +672,7 @@ export function Editor() {
                   aria-label={item.label}
                   onClick={() => dispatch({ type: "setAspect", aspect: item.id })}
                   className={cn(
-                    "grid size-8 place-items-center rounded-md",
+                    "grid size-9 place-items-center rounded-md",
                     active ? "bg-background text-primary shadow-sm" : "text-muted-foreground",
                   )}
                 >
@@ -683,7 +683,7 @@ export function Editor() {
           </div>
           <Button
             type="button"
-            size="icon"
+            size="icon-lg"
             variant="ghost"
             aria-label="Annulla"
             disabled={state.past.length === 0 || snap.recording}
@@ -693,7 +693,7 @@ export function Editor() {
           </Button>
           <Button
             type="button"
-            size="icon"
+            size="icon-lg"
             variant="ghost"
             aria-label="Ripeti"
             disabled={state.future.length === 0 || snap.recording}
@@ -701,15 +701,15 @@ export function Editor() {
           >
             <Redo2 />
           </Button>
-          <Button type="button" className="h-9 px-2.5" onClick={() => fileRef.current?.click()} disabled={snap.recording}>
+          <Button type="button" className="h-10 px-3" onClick={() => fileRef.current?.click()} disabled={snap.recording}>
             <Plus />
             <span className="hidden min-[420px]:inline">Aggiungi</span>
           </Button>
         </div>
       </header>
 
-      <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[minmax(0,1fr)_auto_auto] overflow-hidden pb-[env(safe-area-inset-bottom)] landscape:max-lg:grid-cols-[minmax(0,1fr)_minmax(13rem,36vw)] landscape:max-lg:grid-rows-[minmax(0,1fr)_auto] lg:grid-cols-[minmax(0,1fr)_400px] lg:grid-rows-[minmax(0,1fr)_auto] lg:pb-0">
-        <div className="relative min-h-0 max-lg:portrait:min-h-[13.5rem] landscape:max-lg:col-start-1 landscape:max-lg:row-start-1 lg:col-start-1 lg:row-start-1">
+      <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[auto_auto_minmax(0,1fr)] overflow-hidden pb-[env(safe-area-inset-bottom)] landscape:max-lg:grid-cols-[minmax(0,1fr)_minmax(15rem,38vw)] landscape:max-lg:grid-rows-[minmax(0,1fr)_auto] lg:grid-cols-[minmax(0,1fr)_400px] lg:grid-rows-[minmax(0,1fr)_auto] lg:pb-0">
+        <div className="relative min-h-0 max-lg:portrait:h-[max(17.5rem,min(36dvh,23rem))] landscape:max-lg:col-start-1 landscape:max-lg:row-start-1 lg:col-start-1 lg:row-start-1">
           <div className="absolute inset-0">
             <PreviewStage
               frameRef={frameRef}
@@ -763,8 +763,8 @@ export function Editor() {
           />
           </div>
 
-        <aside className="z-20 flex min-h-0 w-full flex-col overflow-hidden border-t border-border bg-background max-lg:portrait:h-[min(13.25rem,32dvh)] max-lg:portrait:max-h-[32dvh] landscape:max-lg:col-start-2 landscape:max-lg:row-start-1 landscape:max-lg:border-t-0 landscape:max-lg:border-l lg:col-start-2 lg:row-span-2 lg:row-start-1 lg:border-t-0 lg:border-l">
-          <div className="flex shrink-0 gap-0.5 overflow-x-auto border-b border-border px-1.5 py-1.5">
+        <aside className="z-20 flex min-h-0 w-full flex-col overflow-hidden border-t border-border bg-background landscape:max-lg:col-start-2 landscape:max-lg:row-start-1 landscape:max-lg:border-t-0 landscape:max-lg:border-l lg:col-start-2 lg:row-span-2 lg:row-start-1 lg:border-t-0 lg:border-l">
+          <div className="flex shrink-0 gap-1 overflow-x-auto border-b border-border px-2 py-2">
             {TOOLS.map((tool) => {
               const Icon = tool.icon;
               const active = state.tool === tool.id;
@@ -775,7 +775,7 @@ export function Editor() {
                   aria-pressed={active}
                   onClick={() => dispatch({ type: "setTool", tool: tool.id })}
                   className={cn(
-                    "flex min-w-0 flex-1 flex-col items-center gap-0.5 rounded-xl px-0.5 py-1.5 text-[10px] leading-tight font-medium",
+                    "flex min-h-14 min-w-0 flex-1 flex-col items-center justify-center gap-1 rounded-xl px-1 py-2 text-xs leading-tight font-medium landscape:max-lg:min-h-12 landscape:max-lg:text-[11px]",
                     active ? "bg-primary/15 text-primary" : "text-muted-foreground",
                   )}
                 >
@@ -785,7 +785,7 @@ export function Editor() {
               );
             })}
           </div>
-          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-3">
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4">
             {state.tool === "cut" ? (
               <CutPanel
                 clips={state.clips}

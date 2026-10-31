@@ -9,11 +9,11 @@ import { formatTime } from "@/lib/time";
 import type { AudioClip, Clip, Marker, OverlayClip, TitleCard } from "@/lib/types";
 import { cn } from "cn";
 
-const RULER = 26;
-const TITLE_H = 20;
-const OVER_H = 24;
-const VIDEO_H = 58;
-const AUDIO_H = 30;
+const RULER = 28;
+const TITLE_H = 24;
+const OVER_H = 28;
+const VIDEO_H = 76;
+const AUDIO_H = 36;
 const COLORS = ["#e4a04a", "#79b7c9", "#d9896a", "#8fbf9f", "#cbb27a", "#c58bb3"];
 
 export function TimelineView({
@@ -73,8 +73,8 @@ export function TimelineView({
   const dragRef = useRef<{ id: string; edge: "in" | "out"; history: boolean; originX: number; origin: number } | null>(null);
   const moveRef = useRef<{ id: string; startX: number; moved: boolean } | null>(null);
   const width = Math.max(duration, 1) * pps + 48;
-  const rulerH = dense ? 18 : RULER;
-  const videoH = dense ? 44 : VIDEO_H;
+  const rulerH = dense ? 20 : RULER;
+  const videoH = dense ? 52 : VIDEO_H;
   const showTitles = titles.length > 0;
   const showOverlays = overlays.length > 0;
   const showAudio = audios.length > 0;
@@ -163,7 +163,7 @@ export function TimelineView({
 
   return (
     <section className="border-t border-border bg-[#141310]">
-      <div className={cn("flex items-center gap-2 px-3", dense ? "py-1" : "py-2")}>
+      <div className={cn("flex items-center gap-3 px-3", dense ? "py-1.5" : "py-2.5")}>
         <button
           type="button"
           aria-label={playing ? "Pausa" : "Play"}
@@ -171,14 +171,14 @@ export function TimelineView({
           onClick={onToggle}
           className={cn(
             "grid place-items-center rounded-full bg-primary text-primary-foreground disabled:opacity-40",
-            dense ? "size-9" : "size-11",
+            dense ? "size-10" : "size-12",
           )}
         >
           {playing ? <Pause className="size-5 fill-current" /> : <Play className="size-5 translate-x-0.5 fill-current" />}
         </button>
         <div className="min-w-0">
-          <p className="text-[10px] tracking-[0.16em] text-muted-foreground uppercase">Timeline</p>
-          <span ref={clockRef} className="text-sm tabular-nums">
+          <p className="text-[11px] tracking-[0.14em] text-muted-foreground uppercase">Timeline</p>
+          <span ref={clockRef} className="text-base tabular-nums">
             {formatTime(0)} / {formatTime(duration)}
           </span>
         </div>
@@ -187,7 +187,7 @@ export function TimelineView({
             type="button"
             aria-label="Segna o togli il segno"
             disabled={!engine || clips.length === 0 || recording}
-            className="grid size-9 place-items-center rounded-lg text-muted-foreground hover:bg-muted disabled:opacity-40"
+            className="grid size-10 place-items-center rounded-lg text-muted-foreground hover:bg-muted disabled:opacity-40"
             onClick={onMarker}
           >
             <Flag className="size-4" />
@@ -195,7 +195,7 @@ export function TimelineView({
           <button
             type="button"
             aria-label="Riduci timeline"
-            className="grid size-9 place-items-center rounded-lg text-muted-foreground hover:bg-muted"
+            className="grid size-10 place-items-center rounded-lg text-muted-foreground hover:bg-muted"
             onClick={() => setPps((value) => Math.max(28, Math.round(value / 1.25)))}
           >
             <ZoomOut className="size-4" />
@@ -203,7 +203,7 @@ export function TimelineView({
           <button
             type="button"
             aria-label="Ingrandisci timeline"
-            className="grid size-9 place-items-center rounded-lg text-muted-foreground hover:bg-muted"
+            className="grid size-10 place-items-center rounded-lg text-muted-foreground hover:bg-muted"
             onClick={() => setPps((value) => Math.min(180, Math.round(value * 1.25)))}
           >
             <ZoomIn className="size-4" />
@@ -246,7 +246,7 @@ export function TimelineView({
               {ticks.map((second) => (
                 <div key={second} className="absolute top-0 h-full" style={{ left: second * pps }}>
                   <div className="h-2 w-px bg-border" />
-                  <span className="absolute top-2 left-1 text-[10px] text-muted-foreground tabular-nums">
+                  <span className="absolute top-2 left-1 text-xs text-muted-foreground tabular-nums">
                     {Math.floor(second / 60)}:{String(second % 60).padStart(2, "0")}
                   </span>
                 </div>
@@ -356,7 +356,7 @@ export function TimelineView({
                             ))
                           )}
                         </span>
-                        <span className="absolute inset-x-0 bottom-0 truncate bg-gradient-to-t from-black/75 to-transparent px-1.5 py-1 text-[10px] text-white">
+                        <span className="absolute inset-x-0 bottom-0 truncate bg-gradient-to-t from-black/75 to-transparent px-2 py-1.5 text-xs text-white">
                           {clip.reverse ? "↺ " : ""}
                           {clip.name}
                         </span>
@@ -460,7 +460,7 @@ export function TimelineView({
 
 function LaneLabel({ children, height }: { children: string; height: number }) {
   return (
-    <div className="mt-1 flex items-center justify-center text-[10px] text-muted-foreground" style={{ height }}>
+    <div className="mt-1 flex items-center justify-center text-xs text-muted-foreground" style={{ height }}>
       {children}
     </div>
   );

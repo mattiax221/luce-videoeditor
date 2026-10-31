@@ -160,6 +160,36 @@
   scrollbar-color: #3a362f transparent;
 }
 
+.luce-empty {
+  container-type: size;
+}
+
+@container (max-height: 13.5rem) {
+  .luce-empty > div {
+    padding-top: 0.5rem;
+    padding-bottom: 0.5rem;
+  }
+
+  .luce-empty-copy {
+    display: none;
+  }
+
+  .luce-empty-title {
+    font-size: 1.35rem;
+  }
+
+  .luce-empty-actions {
+    flex-direction: row;
+    max-width: 28rem;
+    margin-top: 0.7rem;
+  }
+
+  .luce-empty-actions > button {
+    width: auto;
+    min-width: 9.5rem;
+  }
+}
+
 .luce-scrubber {
   appearance: none;
   height: 28px;

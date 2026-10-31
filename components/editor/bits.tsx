@@ -36,7 +36,7 @@ export function Segmented<T extends string>({
             aria-checked={active}
             onClick={() => onChange(option.value)}
             className={cn(
-              "flex h-9 items-center justify-center gap-1.5 rounded-lg px-2 text-xs font-medium transition-colors",
+              "flex h-10 items-center justify-center gap-1.5 rounded-lg px-2 text-sm font-medium transition-colors",
               active ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
             )}
           >
@@ -73,13 +73,13 @@ export function SliderRow({
 
   return (
     <label
-      className={cn("grid grid-cols-[1fr_auto] items-center gap-x-3 gap-y-1.5", disabled && "opacity-40")}
+      className={cn("grid grid-cols-[1fr_auto] items-center gap-x-3 gap-y-2", disabled && "opacity-40")}
       onPointerDownCapture={() => {
         armed.current = false;
       }}
     >
-      <span className="text-xs text-muted-foreground">{label}</span>
-      <span className="text-xs tabular-nums text-foreground/90">{display}</span>
+      <span className="text-sm text-muted-foreground">{label}</span>
+      <span className="text-sm tabular-nums text-foreground/90">{display}</span>
       <Slider
         className="col-span-2"
         min={min}
@@ -103,5 +103,5 @@ export function SliderRow({
 }
 
 export function EmptyHint({ children }: { children: string }) {
-  return <p className="rounded-xl border border-dashed border-border px-3 py-6 text-center text-sm text-muted-foreground">{children}</p>;
+  return <p className="rounded-2xl border border-dashed border-border px-4 py-8 text-center text-sm leading-relaxed text-muted-foreground">{children}</p>;
 }

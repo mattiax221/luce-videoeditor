@@ -102,14 +102,14 @@ export function PreviewStage({
           aria-hidden
         />
         {!hasClips ? (
-          <div className="absolute inset-0 z-20 overflow-hidden @container">
-            <div className="flex h-full items-center justify-center px-4 py-3">
+          <div className="luce-empty absolute inset-0 z-20 overflow-hidden">
+            <div className="flex h-full items-center justify-center px-5 py-4">
               <div className="w-full max-w-md text-center">
-                <p className="font-serif text-2xl leading-none text-balance text-foreground lg:text-3xl">Il montaggio è vuoto</p>
-                <p className="mx-auto mt-2 max-w-[18rem] text-[13px] leading-snug text-muted-foreground">
+                <p className="luce-empty-title font-serif text-[1.7rem] leading-none text-balance text-foreground lg:text-3xl">Il montaggio è vuoto</p>
+                <p className="luce-empty-copy mx-auto mt-3 max-w-[18rem] text-sm leading-relaxed text-muted-foreground">
                   Apri un video dal telefono. Resta sul dispositivo: niente account, niente upload.
                 </p>
-                <div className="mx-auto mt-3 flex w-full max-w-[18rem] flex-col gap-2 @min-[28rem]:max-w-none @min-[28rem]:flex-row @min-[28rem]:justify-center">
+                <div className="luce-empty-actions mx-auto mt-4 flex w-full max-w-[18rem] flex-col justify-center gap-3">
                   <button
                     type="button"
                     onClick={onOpen}
@@ -196,7 +196,7 @@ export function PreviewStage({
           </div>
         ) : null}
       </div>
-      <label className="relative z-30 block px-4 pt-1 pb-2">
+      <label className="relative z-30 block px-4 pt-2 pb-3">
         <span className="sr-only">Posizione nel montaggio</span>
         <input
           ref={scrub}

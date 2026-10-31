@@ -46,14 +46,14 @@ export function CutPanel({
     : null;
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-4">
       <PanelHeading title="Taglio" detail={clip.name} />
       <SourceTrim clip={clip} sourceMark={sourceMark} onEdge={onEdge} />
       <Button type="button" className="h-11 w-full" onClick={onSplit} disabled={!canSplitNow}>
         <Scissors />
         Dividi al cursore
       </Button>
-      <div className="grid grid-cols-2 gap-2">
+      <div className="grid grid-cols-2 gap-3">
         <Button type="button" variant="secondary" className="h-10" disabled={!inside} onClick={() => onTrim("in")}>
           Taglia inizio
         </Button>
@@ -61,7 +61,7 @@ export function CutPanel({
           Taglia fine
         </Button>
       </div>
-      <div className="grid grid-cols-4 gap-2">
+      <div className="grid grid-cols-4 gap-3">
         <Button type="button" variant="outline" className="h-10" disabled={index <= 0} onClick={() => onMove(-1)}>
           Prima
         </Button>
