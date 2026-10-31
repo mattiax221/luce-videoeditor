@@ -4,12 +4,13 @@ import { Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { EmptyHint, PanelHeading, SliderRow } from "@/components/editor/bits";
+import { EmptyHint, PanelHeading, Segmented, SliderRow } from "@/components/editor/bits";
 import { parseSubtitles } from "@/lib/srt";
+import type { SpeechLanguage } from "@/lib/speech-cues";
 import { formatTime, uid } from "@/lib/time";
 import { TITLE_COLORS, type TitleAlign, type TitleCard, type TitleFont, type TitleMotion, type TitlePatch } from "@/lib/types";
 import { cn } from "cn";
-import { useRef } from "react";
+import { useRef, useState } from "react";
 
 const FONTS: { id: TitleFont; label: string; className: string }[] = [
   { id: "sans", label: "Sans", className: "font-sans" },
@@ -24,6 +25,8 @@ export function TextPanel({
   time,
   onAdd,
   onAddMany,
+  onGenerate,
+  generating,
   onSelect,
   onPatch,
   onDelete,
@@ -34,18 +37,37 @@ export function TextPanel({
   time: number;
   onAdd: () => void;
   onAddMany: (titles: TitleCard[]) => void;
+  onGenerate: (language: SpeechLanguage) => void;
+  generating: boolean;
   onSelect: (id: string) => void;
   onPatch: (id: string, patch: TitlePatch, history: boolean) => void;
   onDelete: (id: string) => void;
 }) {
   const typing = useRef(false);
   const cues = useRef<HTMLTextAreaElement>(null);
+  const [language, setLanguage] = useState<SpeechLanguage>("it");
   const selected = titles.find((title) => title.id === selectedId) ?? null;
 
   return (
     <div className="space-y-3">
       <PanelHeading title="Testo" detail={titles.length ? `${titles.length} titoli` : "Nessuno"} />
-      <Button type="button" className="h-11 w-full" onClick={onAdd} disabled={duration <= 0}>
+      <Button type="button" className="h-11 w-full" disabled={duration <= 0 || generating} onClick={() => onGenerate(language)}>
+        Genera dal parlato
+      </Button>
+      <Segmented
+        label="Lingua del parlato"
+        value={language}
+        onChange={setLanguage}
+        options={[
+          { value: "it", label: "Italiano" },
+          { value: "en", label: "English" },
+          { value: "auto", label: "Rileva" },
+        ]}
+      />
+      <p className="text-[11px] leading-relaxed text-muted-foreground">
+        Ascolta il video e le tracce audio in questo browser. La prima volta scarica un modello, circa 40 MB. Il filmato resta sul telefono.
+      </p>
+      <Button type="button" variant="secondary" className="h-11 w-full" onClick={onAdd} disabled={duration <= 0}>
         Aggiungi titolo sul cursore
       </Button>
       <textarea

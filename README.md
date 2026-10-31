@@ -16,7 +16,7 @@ Il flusso riprende le due pagine che usi di più su un editor desktop: il montag
 - Una traccia sopra per un riquadro (Metti sopra) o per un altro file
 - Musica o voce: Aggiungi audio, oppure Registra dal microfono. Volume e inizio sono indipendenti dal video
 - Titoli con allineamento, sfondo, contorno, entrata e uscita. Si trascinano sull’anteprima
-- Sottotitoli incollando un SRT o un VTT
+- Sottotitoli dal parlato: in Testo, Genera dal parlato. La prima volta scarica un modello nel browser; il video non viene caricato. Si può anche incollare un SRT o un VTT
 - Segni sulla timeline: la bandierina ne aggiunge uno, e lo toglie se il cursore è già sopra
 - Copiare e incollare il colore, applicarlo a tutte le clip, caricare una LUT `.cube`
 - Forma d’onda e vettorscopio nel pannello colore, mentre correggi

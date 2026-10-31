@@ -38,6 +38,7 @@ import {
   selectedClip,
 } from "@/lib/editor-state";
 import { createClip, followKeyframe, touchKeyframe } from "@/lib/clip";
+import type { SpeechLanguage } from "@/lib/speech-cues";
 import { fastExportSupported } from "@/lib/fast-export";
 import { parseCube } from "@/lib/lut";
 import { captureThumbs, createDemoFile, fileToAudio, fileToClip, measurePeaks } from "@/lib/media";
@@ -69,6 +70,7 @@ export function Editor() {
   const [engine, setEngine] = useState<PlaybackEngine | null>(null);
   const [snap, setSnap] = useState<PlaybackSnap>({ time: 0, playing: false, recording: false, duration: 0 });
   const [busy, setBusy] = useState<string | null>(null);
+  const [canCancel, setCanCancel] = useState(false);
   const [exported, setExported] = useState<ExportFile | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
   const frameRef = useRef<HTMLCanvasElement>(null);
@@ -77,6 +79,7 @@ export function Editor() {
   const audioRef = useRef<HTMLInputElement>(null);
   const overlayFileRef = useRef<HTMLInputElement>(null);
   const micRef = useRef<MediaRecorder | null>(null);
+  const transcribeAbort = useRef<AbortController | null>(null);
   const [micOn, setMicOn] = useState(false);
   const [storeReady, setStoreReady] = useState(false);
   const urlsRef = useRef<Set<string>>(new Set());
@@ -550,6 +553,51 @@ export function Editor() {
     dispatch({ type: "patchTitle", id, patch, history });
   }
 
+  async function generateSpeech(language: SpeechLanguage) {
+    if (totalDuration(stateRef.current.clips) <= 0) {
+      toast.error("Aggiungi prima un video.");
+      return;
+    }
+    const abort = new AbortController();
+    transcribeAbort.current = abort;
+    setCanCancel(true);
+    abort.signal.addEventListener("abort", () => setBusy("Annullamento…"));
+    setBusy("Preparo il riconoscimento vocale…");
+    try {
+      const { transcribeTimeline } = await import("@/lib/transcribe");
+      const result = await transcribeTimeline({
+        clips: stateRef.current.clips,
+        audios: stateRef.current.audios,
+        language,
+        signal: abort.signal,
+        onProgress: (message) => {
+          if (!abort.signal.aborted) setBusy(message);
+        },
+        makeId: uid,
+      });
+      if (abort.signal.aborted) return;
+      if (result.titles.length === 0) {
+        toast.error(
+          result.heard
+            ? "Ho sentito audio, ma non un parlato riconoscibile."
+            : "Non ho sentito parlato. Serve una voce, oppure incolla un SRT.",
+        );
+        return;
+      }
+      dispatch({ type: "addTitles", titles: result.titles });
+      const count = result.titles.length;
+      const noun = count === 1 ? "sottotitolo" : "sottotitoli";
+      toast.success(result.capped ? `${count} ${noun}, dai primi 10 minuti` : `${count} ${noun} dal parlato`);
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") return;
+      toast.error("Non riesco a generare i sottotitoli in questo browser.");
+    } finally {
+      transcribeAbort.current = null;
+      setCanCancel(false);
+      setBusy(null);
+    }
+  }
+
   function addTitle() {
     const length = totalDuration(state.clips);
     if (length <= 0) {
@@ -804,6 +852,8 @@ export function Editor() {
                 time={engine?.time ?? snap.time}
                 onAdd={addTitle}
                 onAddMany={(titles: TitleCard[]) => dispatch({ type: "addTitles", titles })}
+                onGenerate={(language) => void generateSpeech(language)}
+                generating={busy !== null}
                 onSelect={(id) => dispatch({ type: "selectTitle", id })}
                 onPatch={patchTitle}
                 onDelete={(id) => dispatch({ type: "deleteTitle", id })}
@@ -895,6 +945,11 @@ export function Editor() {
           <div className="w-full max-w-xs rounded-2xl border border-border bg-card px-5 py-4 text-center shadow-2xl">
             <Loader2 className="mx-auto size-5 animate-spin text-primary" />
             <p className="mt-3 text-sm">{busy}</p>
+            {canCancel ? (
+              <button type="button" className="mt-3 text-xs text-muted-foreground" onClick={() => transcribeAbort.current?.abort()}>
+                Annulla
+              </button>
+            ) : null}
           </div>
         </div>
       ) : null}
