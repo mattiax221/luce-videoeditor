@@ -1,11 +1,13 @@
 "use client";
 
 import { Trash2 } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { EmptyHint, PanelHeading, SliderRow } from "@/components/editor/bits";
-import { formatTime } from "@/lib/time";
-import { TITLE_COLORS, type TitleCard, type TitleFont, type TitlePatch } from "@/lib/types";
+import { parseSubtitles } from "@/lib/srt";
+import { formatTime, uid } from "@/lib/time";
+import { TITLE_COLORS, type TitleAlign, type TitleCard, type TitleFont, type TitleMotion, type TitlePatch } from "@/lib/types";
 import { cn } from "cn";
 import { useRef } from "react";
 
@@ -21,6 +23,7 @@ export function TextPanel({
   duration,
   time,
   onAdd,
+  onAddMany,
   onSelect,
   onPatch,
   onDelete,
@@ -30,11 +33,13 @@ export function TextPanel({
   duration: number;
   time: number;
   onAdd: () => void;
+  onAddMany: (titles: TitleCard[]) => void;
   onSelect: (id: string) => void;
   onPatch: (id: string, patch: TitlePatch, history: boolean) => void;
   onDelete: (id: string) => void;
 }) {
   const typing = useRef(false);
+  const cues = useRef<HTMLTextAreaElement>(null);
   const selected = titles.find((title) => title.id === selectedId) ?? null;
 
   return (
@@ -42,6 +47,30 @@ export function TextPanel({
       <PanelHeading title="Testo" detail={titles.length ? `${titles.length} titoli` : "Nessuno"} />
       <Button type="button" className="h-11 w-full" onClick={onAdd} disabled={duration <= 0}>
         Aggiungi titolo sul cursore
+      </Button>
+      <textarea
+        ref={cues}
+        rows={3}
+        placeholder={"Incolla sottotitoli SRT o VTT"}
+        className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
+        aria-label="Sottotitoli"
+      />
+      <Button
+        type="button"
+        variant="secondary"
+        className="h-10 w-full"
+        disabled={duration <= 0}
+        onClick={() => {
+          const parsed = parseSubtitles(cues.current?.value ?? "", uid);
+          if (parsed.length === 0) {
+            toast.error("Non trovo tempi nel testo. Usa un SRT o un VTT.");
+            return;
+          }
+          onAddMany(parsed);
+          if (cues.current) cues.current.value = "";
+        }}
+      >
+        Crea sottotitoli
       </Button>
       {duration <= 0 ? <EmptyHint>Prima serve un video in timeline.</EmptyHint> : null}
       {titles.length > 0 ? (
@@ -66,7 +95,7 @@ export function TextPanel({
           <Input
             value={selected.text}
             aria-label="Testo del titolo"
-            maxLength={80}
+            maxLength={180}
             className="h-11"
             onChange={(event) => {
               onPatch(selected.id, { text: event.target.value }, !typing.current);
@@ -109,6 +138,43 @@ export function TextPanel({
             ))}
           </div>
           <div className="grid grid-cols-3 gap-2">
+            {([
+              ["Sinistra", "left"],
+              ["Centro", "center"],
+              ["Destra", "right"],
+            ] as const).map(([label, align]) => (
+              <Button
+                key={align}
+                type="button"
+                variant={selected.align === align ? "default" : "outline"}
+                className="h-9"
+                onClick={() => onPatch(selected.id, { align: align as TitleAlign }, true)}
+              >
+                {label}
+              </Button>
+            ))}
+          </div>
+          <div className="grid grid-cols-3 gap-2">
+            <Button type="button" variant={selected.background ? "default" : "outline"} className="h-9" onClick={() => onPatch(selected.id, { background: selected.background ? null : "#14120fcc" }, true)}>
+              Sfondo
+            </Button>
+            <Button type="button" variant={selected.stroke ? "default" : "outline"} className="h-9" onClick={() => onPatch(selected.id, { stroke: !selected.stroke }, true)}>
+              Contorno
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              className="h-9"
+              onClick={() => {
+                const order: TitleMotion[] = ["none", "fade", "rise"];
+                const next = order[(order.indexOf(selected.enter) + 1) % order.length] ?? "fade";
+                onPatch(selected.id, { enter: next, exit: next }, true);
+              }}
+            >
+              {selected.enter === "rise" ? "Salita" : selected.enter === "fade" ? "Dissolvi" : "Fermo"}
+            </Button>
+          </div>
+          <div className="grid grid-cols-3 gap-2">
             {[
               ["Alto", 0.18],
               ["Centro", 0.5],
@@ -146,7 +212,7 @@ export function TextPanel({
           <SliderRow
             label="Durata"
             min={0.2}
-            max={8}
+            max={30}
             step={0.05}
             value={selected.duration}
             display={formatTime(selected.duration)}

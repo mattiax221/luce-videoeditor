@@ -1,22 +1,32 @@
+import { stabAt } from "@/lib/clip";
 import { drawTitles, readFonts, type FontSet } from "@/lib/draw-titles";
+import { encodeFast } from "@/lib/fast-export";
 import { fitRect, projectSize } from "@/lib/frame";
 import { cssFilter, gradeVectors } from "@/lib/grade";
 import { GradeRenderer, type GradeDraw } from "@/lib/gl-renderer";
+import { sampleTrack } from "@/lib/keyframes";
 import { extensionForMime, pickRecorderMime } from "@/lib/media";
 import {
+  audioDuration,
   clipStart,
   clipTimelineDuration,
+  crossMix,
   fadeAt,
   locate,
+  overlayLocal,
+  overlaysAt,
   sourceTime,
   totalDuration,
 } from "@/lib/timeline";
 import { clamp } from "@/lib/time";
-import type { Aspect, Clip, Quality, TitleCard } from "@/lib/types";
+import type { Aspect, AudioClip, Clip, Lut, OverlayClip, Quality, TitleCard } from "@/lib/types";
 
 export type ProjectView = {
   clips: Clip[];
+  overlays: OverlayClip[];
+  audios: AudioClip[];
   titles: TitleCard[];
+  luts: Lut[];
   aspect: Aspect;
   quality: Quality;
   selectedTitleId: string | null;
@@ -31,7 +41,10 @@ export type PlaybackSnap = {
 
 const EMPTY_VIEW: ProjectView = {
   clips: [],
+  overlays: [],
+  audios: [],
   titles: [],
+  luts: [],
   aspect: "16:9",
   quality: "720",
   selectedTitleId: null,
@@ -50,13 +63,17 @@ export class PlaybackEngine {
   private exportCtx: CanvasRenderingContext2D | null = null;
   private readonly exportCanvas: HTMLCanvasElement;
   private readonly preloader: HTMLVideoElement;
+  private readonly overlayVideo: HTMLVideoElement;
   private readonly video: HTMLVideoElement;
+  private readonly images = new Map<string, HTMLImageElement>();
+  private readonly beds = new Map<string, HTMLAudioElement>();
 
   private raf = 0;
   private disposed = false;
   private clipId: string | null = null;
   private currentUrl: string | null = null;
   private preloadUrl: string | null = null;
+  private overlayUrl: string | null = null;
   private seeking = false;
   private awaitingLoad = false;
   private seekStarted = 0;
@@ -72,6 +89,9 @@ export class PlaybackEngine {
   private exportGen = 0;
   private wakeLock: WakeLockSentinel | null = null;
   private lastEmit = 0;
+  private lastTick = 0;
+  private stepping = false;
+  private fastAbort: AbortController | null = null;
   private readonly listeners = new Set<(snap: PlaybackSnap) => void>();
   private readonly frameListeners = new Set<(time: number) => void>();
   private onHidden = () => {
@@ -102,6 +122,13 @@ export class PlaybackEngine {
     this.hide(this.preloader);
     document.body.appendChild(this.preloader);
 
+    this.overlayVideo = document.createElement("video");
+    this.overlayVideo.muted = true;
+    this.overlayVideo.playsInline = true;
+    this.overlayVideo.preload = "auto";
+    this.hide(this.overlayVideo);
+    document.body.appendChild(this.overlayVideo);
+
     this.exportCanvas = document.createElement("canvas");
     this.hide(this.exportCanvas);
     document.body.appendChild(this.exportCanvas);
@@ -127,6 +154,15 @@ export class PlaybackEngine {
     this.preloader.removeAttribute("src");
     this.preloader.load();
     this.preloader.remove();
+    this.overlayVideo.pause();
+    this.overlayVideo.removeAttribute("src");
+    this.overlayVideo.load();
+    this.overlayVideo.remove();
+    for (const bed of this.beds.values()) {
+      bed.pause();
+      bed.remove();
+    }
+    this.beds.clear();
     this.exportCanvas.remove();
     this.renderer?.destroy();
     void this.audioCtx?.close();
@@ -412,7 +448,57 @@ export class PlaybackEngine {
     this.releaseStream();
     void this.wakeLock?.release().catch(() => undefined);
     this.wakeLock = null;
+    this.fastAbort?.abort();
+    this.fastAbort = null;
+    this.stepping = false;
     this.emit(true);
+  }
+
+  captureFrame(): Promise<Blob | null> {
+    this.draw();
+    return new Promise((resolve) => {
+      this.frameCanvas.toBlob((blob) => resolve(blob), "image/jpeg", 0.92);
+    });
+  }
+
+  async startFastExport() {
+    if (this.recording || this.stepping) return;
+    if (totalDuration(this.view.clips) <= 0) {
+      this.onError?.("Aggiungi un video prima di esportare.");
+      return;
+    }
+    this.video.pause();
+    this.playing = false;
+    this.wantPlay = false;
+    this.recording = true;
+    this.stepping = true;
+    this.emit(true);
+    const abort = new AbortController();
+    this.fastAbort = abort;
+    try {
+      const blob = await encodeFast({
+        canvas: this.frameCanvas,
+        overlay: this.overlayCanvas,
+        clips: this.view.clips,
+        audios: this.view.audios,
+        signal: abort.signal,
+        onProgress: (value) => {
+          this.time = value * totalDuration(this.view.clips);
+          this.emit(true);
+        },
+        seek: (time) => this.renderAt(time),
+      });
+      if (!abort.signal.aborted) this.onExported?.(blob, "webm");
+    } catch (error) {
+      if (!(error instanceof DOMException && error.name === "AbortError")) {
+        this.onError?.("Esportazione veloce non riuscita. Usa Esporta video.");
+      }
+    } finally {
+      this.stepping = false;
+      this.recording = false;
+      this.fastAbort = null;
+      this.emit(true);
+    }
   }
 
   redraw() {
@@ -510,6 +596,14 @@ export class PlaybackEngine {
 
   private loadOrSeek(clip: Clip, src: number) {
     this.clipId = clip.id;
+    if (clip.kind === "image") {
+      this.currentUrl = clip.url;
+      this.awaitingLoad = false;
+      this.markSeeking(false);
+      this.video.pause();
+      this.draw();
+      return;
+    }
     this.video.playbackRate = clip.speed > 0 ? clip.speed : 1;
     if (this.currentUrl !== clip.url) {
       const token = ++this.loadToken;
@@ -569,8 +663,9 @@ export class PlaybackEngine {
   private readonly onSeeked = () => {
     if (this.awaitingLoad) return;
     this.markSeeking(false);
-    if (this.playing && this.wantPlay) this.safePlay();
-    else if (!this.playing) this.video.pause();
+    const reverse = this.view.clips.find((clip) => clip.id === this.clipId)?.reverse;
+    if (this.playing && this.wantPlay && !reverse) this.safePlay();
+    else if (!this.playing || reverse) this.video.pause();
     this.draw();
   };
 
@@ -613,8 +708,9 @@ export class PlaybackEngine {
   }
 
   private preloadAround(index: number) {
+    if (crossMix(this.view.clips, this.time)) return;
     const next = this.view.clips[index + 1];
-    if (!next || next.url === this.preloadUrl || next.url === this.currentUrl) return;
+    if (!next || next.kind !== "video" || next.url === this.preloadUrl || next.url === this.currentUrl) return;
     this.preloadUrl = next.url;
     this.preloader.src = next.url;
   }
@@ -660,14 +756,32 @@ export class PlaybackEngine {
 
   private readonly frame = (now: number) => {
     if (this.disposed) return;
+    if (this.lastTick === 0) this.lastTick = now;
+    const dt = Math.min(0.05, (now - this.lastTick) / 1000);
+    this.lastTick = now;
     if (this.seeking && now - this.seekStarted > 2500) {
       this.awaitingLoad = false;
       this.markSeeking(false);
     }
-    if (this.playing && !this.seeking && !this.awaitingLoad) {
+    if (!this.stepping && this.playing && !this.seeking && !this.awaitingLoad) {
       const hit = locate(this.view.clips, this.time);
       if (!hit) {
         this.playing = false;
+      } else if (hit.clip.kind === "image" || hit.clip.reverse) {
+        this.time += dt;
+        const end = hit.start + clipTimelineDuration(hit.clip);
+        if (this.time >= end - 0.0001) this.advanceFrom(hit.index);
+        else if (hit.clip.reverse && hit.clip.kind === "video") {
+          const src = this.sourceSeconds(hit.clip, this.time - hit.start);
+          if (Math.abs(this.video.currentTime - src) > 0.05) {
+            try {
+              this.video.currentTime = src;
+            } catch {
+              // The next frame retries the reverse seek.
+            }
+          }
+          this.applyVolume(hit.clip, Math.max(0, this.time - hit.start));
+        }
       } else if (this.clipId === hit.clip.id && this.video.readyState >= 2) {
         const speed = hit.clip.speed > 0 ? hit.clip.speed : 1;
         const local = (this.video.currentTime - hit.clip.inPoint) / speed;
@@ -682,10 +796,11 @@ export class PlaybackEngine {
         }
       }
     }
+    if (!this.stepping) this.syncAux();
     const hit = locate(this.view.clips, this.time);
     const grain = hit?.clip.grade.grain ?? 0;
-    if (this.playing || this.recording || grain > 0) this.draw();
-    if (this.playing || this.recording) {
+    if (!this.stepping && (this.playing || this.recording || grain > 0)) this.draw();
+    if (!this.stepping && (this.playing || this.recording)) {
       this.publishFrame();
       this.emit(false);
     }
@@ -697,37 +812,24 @@ export class PlaybackEngine {
       this.view.clips.length === 0
         ? null
         : locate(this.view.clips, Math.min(this.time, Math.max(0, totalDuration(this.view.clips) - 0.0001)));
-    const fade = this.view.clips.length === 0 ? 1 : fadeAt(this.view.clips, this.time);
-    if (!hit || this.video.readyState < 2) {
-      this.renderer?.clear();
-      if (this.fallback) {
-        this.fallback.fillStyle = "#000";
-        this.fallback.fillRect(0, 0, this.frameCanvas.width, this.frameCanvas.height);
-      }
-    } else if (this.renderer) {
-      const rect = fitRect(
-        this.video.videoWidth || hit.clip.width,
-        this.video.videoHeight || hit.clip.height,
-        this.frameCanvas.width,
-        this.frameCanvas.height,
-        hit.clip.fit,
-      );
-      this.renderer.draw(this.video, rect, this.gradeFor(hit.clip, fade));
-    } else if (this.fallback) {
-      const rect = fitRect(
-        this.video.videoWidth || hit.clip.width,
-        this.video.videoHeight || hit.clip.height,
-        this.frameCanvas.width,
-        this.frameCanvas.height,
-        hit.clip.fit,
-      );
+    const dip = !hit ? 1 : fadeAt(this.view.clips, this.time);
+    const cross = hit ? crossMix(this.view.clips, this.time) : null;
+    const partner = cross ? this.sourceFor(cross.clip, "partner") : null;
+    this.renderer?.clear();
+    if (this.fallback) {
+      this.fallback.clearRect(0, 0, this.frameCanvas.width, this.frameCanvas.height);
       this.fallback.fillStyle = "#000";
       this.fallback.fillRect(0, 0, this.frameCanvas.width, this.frameCanvas.height);
-      this.fallback.filter = cssFilter(hit.clip.grade);
-      this.fallback.globalAlpha = fade;
-      this.fallback.drawImage(this.video, rect.x, rect.y, rect.w, rect.h);
-      this.fallback.filter = "none";
-      this.fallback.globalAlpha = 1;
+    }
+    if (hit) {
+      const base = this.sourceFor(hit.clip, "main");
+      if (base) this.paintClip(hit.clip, hit.local, base, dip);
+      if (cross && partner) this.paintClip(cross.clip, cross.local, partner, cross.mix);
+      const overlay = overlaysAt(this.view.overlays, this.time);
+      if (overlay) {
+        const source = this.sourceFor(overlay, "overlay");
+        if (source) this.paintClip(overlay, overlayLocal(overlay, this.time), source, 1);
+      }
     }
     if (this.overlayCtx) {
       drawTitles(
@@ -740,10 +842,215 @@ export class PlaybackEngine {
         this.playing || this.recording,
       );
     }
-    if (this.recording && this.exportCtx) {
+    if (this.recording && !this.stepping && this.exportCtx) {
       this.exportCtx.drawImage(this.frameCanvas, 0, 0);
       this.exportCtx.drawImage(this.overlayCanvas, 0, 0);
     }
+  }
+
+  private paintClip(clip: Clip, local: number, source: HTMLVideoElement | HTMLImageElement, fade: number) {
+    const width =
+      source instanceof HTMLVideoElement
+        ? source.videoWidth || clip.width
+        : source instanceof HTMLImageElement
+          ? source.naturalWidth || clip.width
+          : clip.width;
+    const height =
+      source instanceof HTMLVideoElement
+        ? source.videoHeight || clip.height
+        : source instanceof HTMLImageElement
+          ? source.naturalHeight || clip.height
+          : clip.height;
+    const rect = fitRect(width, height, this.frameCanvas.width, this.frameCanvas.height, clip.fit);
+    const exposure = sampleTrack(clip.keyframes, local, "exposure", clip.grade.exposure);
+    const opacity = sampleTrack(clip.keyframes, local, "opacity", clip.opacity);
+    const scale = sampleTrack(clip.keyframes, local, "scale", clip.transform.scale);
+    const stab = stabAt(clip.stab, this.sourceSeconds(clip, local));
+    const graded = { ...clip, grade: { ...clip.grade, exposure } };
+    const lut = this.view.luts.find((item) => item.id === clip.lutId) ?? null;
+    if (this.renderer) {
+      this.renderer.draw(
+        {
+          source,
+          rect,
+          grade: this.gradeFor(graded, fade),
+          opacity,
+          panX: clip.transform.x + stab.x,
+          panY: clip.transform.y - stab.y,
+          scale,
+          rotate: clip.transform.rotate,
+          mask: clip.mask,
+          chroma: clip.chroma,
+        },
+        lut,
+      );
+      return;
+    }
+    if (!this.fallback) return;
+    const context = this.fallback;
+    context.save();
+    context.translate(
+      rect.x + rect.w / 2 + (clip.transform.x + stab.x) * this.frameCanvas.width,
+      rect.y + rect.h / 2 - (clip.transform.y - stab.y) * this.frameCanvas.height,
+    );
+    context.rotate((clip.transform.rotate * Math.PI) / 180);
+    context.scale(scale, scale);
+    context.globalAlpha = clamp(opacity * fade, 0, 1);
+    context.filter = cssFilter(graded.grade);
+    context.drawImage(source, -rect.w / 2, -rect.h / 2, rect.w, rect.h);
+    context.filter = "none";
+    context.restore();
+  }
+
+  private sourceFor(clip: Clip, slot: "main" | "partner" | "overlay"): HTMLVideoElement | HTMLImageElement | null {
+    if (clip.kind === "image") return this.imageOf(clip.url);
+    const video = slot === "partner" ? this.preloader : slot === "overlay" ? this.overlayVideo : this.video;
+    return video.readyState >= 2 ? video : null;
+  }
+
+  private imageOf(url: string): HTMLImageElement | null {
+    let image = this.images.get(url);
+    if (!image) {
+      image = new Image();
+      image.src = url;
+      this.images.set(url, image);
+      image.onload = () => {
+        if (!this.disposed) this.draw();
+      };
+    }
+    return image.complete && image.naturalWidth > 0 ? image : null;
+  }
+
+  private sourceSeconds(clip: Clip, local: number): number {
+    const speed = clip.speed > 0 ? clip.speed : 1;
+    const offset = Math.max(0, local) * speed;
+    if (clip.reverse) return clamp(clip.outPoint - offset, clip.inPoint, clip.outPoint);
+    return clip.inPoint + offset;
+  }
+
+  private syncAux() {
+    const cross = crossMix(this.view.clips, this.time);
+    if (cross && cross.clip.kind === "video") this.syncVideo(this.preloader, cross.clip.url, cross.src, "preload");
+    const overlay = overlaysAt(this.view.overlays, this.time);
+    if (overlay && overlay.kind === "video") {
+      this.syncVideo(this.overlayVideo, overlay.url, this.sourceSeconds(overlay, overlayLocal(overlay, this.time)), "overlay");
+    }
+    this.syncBeds();
+  }
+
+  private syncVideo(video: HTMLVideoElement, url: string, time: number, slot: "preload" | "overlay") {
+    const current = slot === "preload" ? this.preloadUrl : this.overlayUrl;
+    if (current !== url) {
+      if (slot === "preload") this.preloadUrl = url;
+      else this.overlayUrl = url;
+      video.src = url;
+      return;
+    }
+    const speed = 1;
+    if (video.playbackRate !== speed) video.playbackRate = speed;
+    if (video.readyState >= 1 && Math.abs(video.currentTime - time) > (this.playing ? 0.18 : 0.05)) {
+      try {
+        video.currentTime = time;
+      } catch {
+        // Metadata can still be settling.
+      }
+    }
+  }
+
+  private syncBeds() {
+    const active = new Set<string>();
+    for (const clip of this.view.audios) {
+      const span = audioDuration(clip);
+      if (this.time < clip.start || this.time >= clip.start + span) continue;
+      active.add(clip.id);
+      let element = this.beds.get(clip.id);
+      if (!element) {
+        element = document.createElement("audio");
+        element.preload = "auto";
+        element.src = clip.url;
+        this.hide(element);
+        document.body.appendChild(element);
+        this.beds.set(clip.id, element);
+      }
+      const src = clip.inPoint + (this.time - clip.start);
+      const fade = clip.fadeIn > 0 ? clamp((this.time - clip.start) / clip.fadeIn, 0, 1) : 1;
+      const tail = clip.fadeOut > 0 ? clamp((clip.start + span - this.time) / clip.fadeOut, 0, 1) : 1;
+      element.volume = clamp((clip.muted ? 0 : clip.volume) * fade * tail, 0, 1);
+      if (Number.isFinite(element.duration) && Math.abs(element.currentTime - src) > 0.28) {
+        try {
+          element.currentTime = src;
+        } catch {
+          // The element is not seekable yet.
+        }
+      }
+      if (this.playing && element.paused) void element.play().catch(() => undefined);
+      if (!this.playing && !element.paused) element.pause();
+    }
+    for (const [id, element] of this.beds) {
+      if (!active.has(id)) element.pause();
+    }
+  }
+
+  private async renderAt(time: number): Promise<void> {
+    const duration = totalDuration(this.view.clips);
+    this.time = clamp(time, 0, Math.max(0, duration - 0.0001));
+    const hit = locate(this.view.clips, this.time);
+    if (hit && hit.clip.kind === "video") {
+      await this.seekTo(this.video, hit.clip.url, sourceTime({ ...hit, local: this.time - hit.start }));
+      this.clipId = hit.clip.id;
+      this.currentUrl = hit.clip.url;
+    }
+    const cross = crossMix(this.view.clips, this.time);
+    if (cross && cross.clip.kind === "video") {
+      await this.seekTo(this.preloader, cross.clip.url, cross.src);
+      this.preloadUrl = cross.clip.url;
+    }
+    const overlay = overlaysAt(this.view.overlays, this.time);
+    if (overlay && overlay.kind === "video") {
+      await this.seekTo(this.overlayVideo, overlay.url, this.sourceSeconds(overlay, overlayLocal(overlay, this.time)));
+      this.overlayUrl = overlay.url;
+    }
+    this.draw();
+  }
+
+  private seekTo(video: HTMLVideoElement, url: string, time: number): Promise<void> {
+    if (this.videoSource(video) === url && video.readyState >= 2 && Math.abs(video.currentTime - time) < 0.04) {
+      return Promise.resolve();
+    }
+    return new Promise((resolve) => {
+      let timer = 0;
+      const finish = () => {
+        window.clearTimeout(timer);
+        video.removeEventListener("seeked", onSeeked);
+        video.removeEventListener("loadeddata", onLoaded);
+        resolve();
+      };
+      timer = window.setTimeout(finish, 900);
+      const onSeeked = () => finish();
+      const onLoaded = () => {
+        video.addEventListener("seeked", onSeeked);
+        try {
+          video.currentTime = time;
+        } catch {
+          finish();
+        }
+      };
+      if (this.videoSource(video) !== url) {
+        if (video === this.video) this.currentUrl = url;
+        else if (video === this.preloader) this.preloadUrl = url;
+        else this.overlayUrl = url;
+        video.addEventListener("loadeddata", onLoaded);
+        video.src = url;
+        return;
+      }
+      onLoaded();
+    });
+  }
+
+  private videoSource(video: HTMLVideoElement): string | null {
+    if (video === this.video) return this.currentUrl;
+    if (video === this.preloader) return this.preloadUrl;
+    return this.overlayUrl;
   }
 
   private gradeFor(clip: Clip, fade: number): GradeDraw {

@@ -1,5 +1,6 @@
+import { cloneClipFields } from "@/lib/clip";
 import { clamp } from "@/lib/time";
-import type { Clip } from "@/lib/types";
+import type { AudioClip, Clip, OverlayClip } from "@/lib/types";
 
 export const MIN_CLIP_SECONDS = 0.12;
 export const SPLIT_MARGIN = 0.08;
@@ -51,7 +52,44 @@ export function locate(clips: Clip[], time: number): Located | null {
 }
 
 export function sourceTime(hit: Located): number {
-  return hit.clip.inPoint + hit.local * (hit.clip.speed > 0 ? hit.clip.speed : 1);
+  const speed = hit.clip.speed > 0 ? hit.clip.speed : 1;
+  const offset = hit.local * speed;
+  if (hit.clip.reverse) return clamp(hit.clip.outPoint - offset, hit.clip.inPoint, hit.clip.outPoint);
+  return hit.clip.inPoint + offset;
+}
+
+export function crossMix(clips: Clip[], time: number): { clip: Clip; src: number; mix: number; local: number } | null {
+  const hit = locate(clips, time);
+  if (!hit) return null;
+  const next = clips[hit.index + 1];
+  if (!next || next.transition !== "cross" || next.dissolve <= 0) return null;
+  const dur = clipTimelineDuration(hit.clip);
+  const remain = dur - hit.local;
+  if (remain <= 0 || remain >= next.dissolve) return null;
+  const mix = clamp(1 - remain / next.dissolve, 0, 1);
+  const local = next.dissolve - remain;
+  const into = local * (next.speed > 0 ? next.speed : 1);
+  const src = next.reverse
+    ? clamp(next.outPoint - into, next.inPoint, next.outPoint)
+    : clamp(next.inPoint + into, next.inPoint, next.outPoint);
+  return { clip: next, src, mix, local };
+}
+
+export function audioDuration(clip: Pick<AudioClip, "inPoint" | "outPoint">): number {
+  return Math.max(0, clip.outPoint - clip.inPoint);
+}
+
+export function overlaysAt(overlays: OverlayClip[], time: number): OverlayClip | null {
+  let found: OverlayClip | null = null;
+  for (const overlay of overlays) {
+    const dur = clipTimelineDuration(overlay);
+    if (time >= overlay.start && time < overlay.start + dur) found = overlay;
+  }
+  return found;
+}
+
+export function overlayLocal(overlay: OverlayClip, time: number): number {
+  return clamp(time - overlay.start, 0, clipTimelineDuration(overlay));
 }
 
 export function fadeAt(clips: Clip[], time: number): number {
@@ -85,20 +123,15 @@ export function splitClips(
   if (!canSplit(clips, time)) return null;
   const hit = locate(clips, time);
   if (!hit) return null;
-  const at = hit.clip.inPoint + hit.local * (hit.clip.speed > 0 ? hit.clip.speed : 1);
-  const left: Clip = { ...hit.clip, outPoint: at };
+  const at = sourceTime(hit);
+  const left: Clip = hit.clip.reverse ? { ...hit.clip, inPoint: at } : { ...hit.clip, outPoint: at };
   const right: Clip = {
     ...hit.clip,
+    ...cloneClipFields(hit.clip),
     id: newId,
-    inPoint: at,
+    ...(hit.clip.reverse ? { outPoint: at } : { inPoint: at }),
     transition: "cut",
     fadeIn: 0,
-    grade: {
-      ...hit.clip.grade,
-      lift: { ...hit.clip.grade.lift },
-      gamma: { ...hit.clip.grade.gamma },
-      gain: { ...hit.clip.grade.gain },
-    },
   };
   return {
     clips: [...clips.slice(0, hit.index), left, right, ...clips.slice(hit.index + 1)],
@@ -130,18 +163,24 @@ export function trimClipToTime(clips: Clip[], id: string, edge: "in" | "out", ti
   const local = time - start;
   const dur = clipTimelineDuration(clip);
   if (local <= SPLIT_MARGIN || local >= dur - SPLIT_MARGIN) return clips;
-  const at = clip.inPoint + local * (clip.speed > 0 ? clip.speed : 1);
-  const next = clampEdge(clip, edge, at);
+  const at = sourceTime({ index, clip, start, local });
+  const next = clampEdge(clip, clip.reverse ? (edge === "in" ? "out" : "in") : edge, at);
   if (next === clip) return clips;
   return clips.map((item, itemIndex) => (itemIndex === index ? next : item));
 }
 
 export function moveClip(clips: Clip[], id: string, dir: -1 | 1): Clip[] {
   const index = clips.findIndex((clip) => clip.id === id);
-  const target = index + dir;
-  if (index < 0 || target < 0 || target >= clips.length) return clips;
+  return moveClipTo(clips, id, index + dir);
+}
+
+export function moveClipTo(clips: Clip[], id: string, index: number): Clip[] {
+  const from = clips.findIndex((clip) => clip.id === id);
+  if (from < 0) return clips;
+  const target = Math.max(0, Math.min(clips.length - 1, index));
+  if (target === from) return clips;
   const next = clips.slice();
-  const [item] = next.splice(index, 1);
+  const [item] = next.splice(from, 1);
   next.splice(target, 0, item);
   return next;
 }

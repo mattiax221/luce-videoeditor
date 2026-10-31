@@ -4,18 +4,35 @@ import { Button } from "@/components/ui/button";
 
 import { EmptyHint, PanelHeading, SliderRow } from "@/components/editor/bits";
 import { ColorWheel } from "@/components/editor/color-wheel";
+import { ScopesView } from "@/components/editor/scopes-view";
 import { GRADE_PRESETS, NEUTRAL_GRADE, cloneGrade } from "@/lib/grade";
 import { signed } from "@/lib/time";
-import type { Clip, ClipPatch, Grade, Wheel } from "@/lib/types";
+import type { Clip, ClipPatch, Grade, Lut, Wheel } from "@/lib/types";
 
 export function ColorPanel({
   clip,
+  frame,
+  luts,
+  canPaste,
   onPatch,
   onApplyAll,
+  onCopy,
+  onPaste,
+  onLut,
+  onClearLut,
+  onKeyframe,
 }: {
   clip: Clip | null;
+  frame: HTMLCanvasElement | null;
+  luts: Lut[];
+  canPaste: boolean;
   onPatch: (patch: ClipPatch, history: boolean) => void;
   onApplyAll: (grade: Grade) => void;
+  onCopy: () => void;
+  onPaste: () => void;
+  onLut: (file: File) => void;
+  onClearLut: () => void;
+  onKeyframe: () => void;
 }) {
   if (!clip) return <EmptyHint>Seleziona una clip per correggere il colore.</EmptyHint>;
   const grade = clip.grade;
@@ -31,6 +48,7 @@ export function ColorPanel({
   return (
     <div className="space-y-4">
       <PanelHeading title="Colore" detail={clip.name} />
+      <ScopesView source={frame} />
       <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1">
         {GRADE_PRESETS.map((preset) => (
           <button
@@ -65,6 +83,47 @@ export function ColorPanel({
         <Button type="button" variant="secondary" className="h-10" onClick={() => onApplyAll(grade)}>
           Applica a tutte
         </Button>
+        <Button type="button" variant="outline" className="h-10" onClick={onCopy}>
+          Copia
+        </Button>
+        <Button type="button" variant="outline" className="h-10" disabled={!canPaste} onClick={onPaste}>
+          Incolla
+        </Button>
+      </div>
+      <div className="flex items-center gap-2">
+        <label className="flex h-10 flex-1 cursor-pointer items-center justify-center rounded-lg border border-border text-sm">
+          LUT
+          <input
+            type="file"
+            accept=".cube,text/plain"
+            className="hidden"
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              event.target.value = "";
+              if (file) onLut(file);
+            }}
+          />
+        </label>
+        <Button type="button" variant="secondary" className="h-10 flex-1" onClick={onKeyframe}>
+          Fotogramma
+        </Button>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        {luts.map((lut) => (
+          <button
+            key={lut.id}
+            type="button"
+            onClick={() => onPatch({ lutId: clip.lutId === lut.id ? null : lut.id }, true)}
+            className={`rounded-full border px-3 py-1 text-xs ${clip.lutId === lut.id ? "border-primary bg-primary/15" : "border-border text-muted-foreground"}`}
+          >
+            {lut.name}
+          </button>
+        ))}
+        {clip.lutId ? (
+          <button type="button" className="text-xs text-muted-foreground" onClick={onClearLut}>
+            Togli LUT
+          </button>
+        ) : null}
       </div>
     </div>
   );

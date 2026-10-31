@@ -1,6 +1,6 @@
 import { clipLabel, uid } from "@/lib/time";
 import { createClip } from "@/lib/clip";
-import type { Clip } from "@/lib/types";
+import type { AudioClip, Clip } from "@/lib/types";
 
 export function pickRecorderMime(): string | null {
   if (typeof MediaRecorder === "undefined") return null;
@@ -217,4 +217,86 @@ export async function createDemoFile(kind: "a" | "b"): Promise<File> {
   return new File([blob], kind === "a" ? `prova-a.${ext}` : `prova-b.${ext}`, {
     type: blob.type || mime,
   });
+}
+
+export function probeAudio(url: string): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const audio = document.createElement("audio");
+    audio.preload = "metadata";
+    const timer = window.setTimeout(() => {
+      cleanup();
+      reject(new Error("timeout"));
+    }, 8000);
+    const cleanup = () => {
+      window.clearTimeout(timer);
+      audio.onloadedmetadata = null;
+      audio.onerror = null;
+      audio.removeAttribute("src");
+      audio.load();
+    };
+    audio.onloadedmetadata = () => {
+      const duration = audio.duration;
+      cleanup();
+      if (!Number.isFinite(duration) || duration <= 0) {
+        reject(new Error("meta"));
+        return;
+      }
+      resolve(duration);
+    };
+    audio.onerror = () => {
+      cleanup();
+      reject(new Error("decode"));
+    };
+    audio.src = url;
+  });
+}
+
+export async function measurePeaks(url: string, bars = 42): Promise<number[]> {
+  try {
+    const response = await fetch(url);
+    const bytes = await response.arrayBuffer();
+    const context = new AudioContext();
+    const decoded = await context.decodeAudioData(bytes.slice(0));
+    await context.close();
+    const channel = decoded.getChannelData(0);
+    const size = Math.max(1, Math.floor(channel.length / bars));
+    const peaks: number[] = [];
+    for (let index = 0; index < bars; index += 1) {
+      let peak = 0;
+      const start = index * size;
+      for (let sample = start; sample < start + size && sample < channel.length; sample += 8) {
+        peak = Math.max(peak, Math.abs(channel[sample] ?? 0));
+      }
+      peaks.push(peak);
+    }
+    const max = Math.max(...peaks, 0.001);
+    return peaks.map((peak) => peak / max);
+  } catch {
+    return [];
+  }
+}
+
+export async function fileToAudio(file: File, start: number): Promise<AudioClip> {
+  const url = URL.createObjectURL(file);
+  try {
+    const duration = await probeAudio(url);
+    return {
+      id: uid(),
+      mediaId: uid(),
+      name: clipLabel(file.name),
+      url,
+      duration,
+      inPoint: 0,
+      outPoint: duration,
+      start,
+      volume: 1,
+      muted: false,
+      fadeIn: 0,
+      fadeOut: 0,
+      peaks: [],
+    };
+  } catch (error) {
+    URL.revokeObjectURL(url);
+    throw error;
+  }
 }

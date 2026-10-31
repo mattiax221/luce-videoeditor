@@ -25,6 +25,9 @@ export function ExportPanel({
   error,
   onQuality,
   onExport,
+  onFast,
+  fastReady,
+  onReset,
   onCancel,
   onDownload,
   onShare,
@@ -39,6 +42,9 @@ export function ExportPanel({
   error: string | null;
   onQuality: (quality: Quality) => void;
   onExport: () => void;
+  onFast: () => void;
+  fastReady: boolean;
+  onReset: () => void;
   onCancel: () => void;
   onDownload: () => void;
   onShare: () => void;
@@ -88,10 +94,25 @@ export function ExportPanel({
           </div>
         </div>
       ) : (
-        <Button type="button" className="h-12 w-full text-base" disabled={clipCount === 0} onClick={onExport}>
-          <Download />
-          Esporta video
-        </Button>
+        <div className="space-y-2">
+          <Button type="button" className="h-12 w-full text-base" disabled={clipCount === 0} onClick={onExport}>
+            <Download />
+            Esporta video
+          </Button>
+          {fastReady ? (
+            <>
+              <Button type="button" variant="secondary" className="h-10 w-full" disabled={clipCount === 0} onClick={onFast}>
+                Esporta veloce
+              </Button>
+              <p className="text-xs leading-relaxed text-muted-foreground">
+                Esporta veloce scrive un WebM più in fretta del tempo reale, se il browser ha i codec. Se non parte, usa Esporta video.
+              </p>
+            </>
+          ) : null}
+          <button type="button" className="w-full text-center text-xs text-muted-foreground" onClick={onReset}>
+            Nuovo montaggio
+          </button>
+        </div>
       )}
       {error ? <p className="text-sm text-destructive">{error}</p> : null}
       {exported ? (

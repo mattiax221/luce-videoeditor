@@ -38,7 +38,12 @@ export function CutPanel({
   const inside = playheadInside(clips, clip.id, time);
   const start = index >= 0 ? clipStart(clips, index) : 0;
   const local = time - start;
-  const sourceMark = inside ? clip.inPoint + Math.max(0, local) * clip.speed : null;
+  const speed = clip.speed > 0 ? clip.speed : 1;
+  const sourceMark = inside
+    ? clip.reverse
+      ? clip.outPoint - Math.max(0, local) * speed
+      : clip.inPoint + Math.max(0, local) * speed
+    : null;
 
   return (
     <div className="space-y-3">
@@ -81,13 +86,14 @@ export function CutPanel({
         value={clip.transition}
         onChange={(transition) => onPatch({ transition }, true)}
         options={[
-          { value: "cut", label: "Taglio secco" },
-          { value: "dissolve", label: "Dissolvenza" },
+          { value: "cut", label: "Secco" },
+          { value: "dissolve", label: "Nero" },
+          { value: "cross", label: "Mix" },
         ]}
       />
-      {clip.transition === "dissolve" ? (
+      {clip.transition !== "cut" ? (
         <SliderRow
-          label="Durata dissolvenza"
+          label={clip.transition === "cross" ? "Durata mix" : "Durata al nero"}
           min={0.15}
           max={1.5}
           step={0.05}
@@ -106,7 +112,7 @@ export function CutPanel({
         ]}
       />
       <p className="text-[11px] leading-relaxed text-muted-foreground">
-        I inizio · O fine · S dividi · Spazio play. La dissolvenza chiude e riapre in nero.
+        I inizio · O fine · S dividi · Spazio play. Trascina i bordi della clip. Nero chiude in nero, Mix fonde con la clip dopo.
         {sourceMark !== null ? ` Cursore a ${formatTime(local)} nella clip.` : ""}
       </p>
     </div>

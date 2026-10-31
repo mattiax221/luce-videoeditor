@@ -24,6 +24,7 @@ import { TimelineView } from "@/components/editor/timeline-view";
 import { AudioPanel } from "@/components/editor/panels/audio-panel";
 import { ColorPanel } from "@/components/editor/panels/color-panel";
 import { CutPanel } from "@/components/editor/panels/cut-panel";
+import { ShapePanel } from "@/components/editor/panels/shape-panel";
 import { ExportPanel, type ExportFile } from "@/components/editor/panels/export-panel";
 import { SpeedPanel } from "@/components/editor/panels/speed-panel";
 import { TextPanel } from "@/components/editor/panels/text-panel";
@@ -36,10 +37,16 @@ import {
   sanitizeTitle,
   selectedClip,
 } from "@/lib/editor-state";
-import { captureThumbs, createDemoFile, fileToClip } from "@/lib/media";
-import { canSplit, totalDuration } from "@/lib/timeline";
+import { createClip, followKeyframe, touchKeyframe } from "@/lib/clip";
+import { fastExportSupported } from "@/lib/fast-export";
+import { parseCube } from "@/lib/lut";
+import { captureThumbs, createDemoFile, fileToAudio, fileToClip, measurePeaks } from "@/lib/media";
+import { attachUrls, clearProject, loadProject, saveProject } from "@/lib/project-store";
+import { measureShake } from "@/lib/stabilize";
+import { projectSize } from "@/lib/frame";
+import { canSplit, clampEdge, clipStart, totalDuration } from "@/lib/timeline";
 import { exportFilename, uid } from "@/lib/time";
-import type { Aspect, ClipPatch, Grade, TitlePatch, Tool } from "@/lib/types";
+import { PIP_TRANSFORM, type Aspect, type ClipPatch, type Grade, type OverlayClip, type TitleCard, type TitlePatch, type Tool } from "@/lib/types";
 import { cn } from "cn";
 
 const TOOLS: { id: Tool; label: string; icon: typeof Scissors }[] = [
@@ -67,6 +74,11 @@ export function Editor() {
   const frameRef = useRef<HTMLCanvasElement>(null);
   const overlayRef = useRef<HTMLCanvasElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const audioRef = useRef<HTMLInputElement>(null);
+  const overlayFileRef = useRef<HTMLInputElement>(null);
+  const micRef = useRef<MediaRecorder | null>(null);
+  const [micOn, setMicOn] = useState(false);
+  const [storeReady, setStoreReady] = useState(false);
   const urlsRef = useRef<Set<string>>(new Set());
   const pendingSeek = useRef<number | null>(null);
   const stateRef = useRef(state);
@@ -112,7 +124,10 @@ export function Editor() {
   useLayoutEffect(() => {
     engine?.setView({
       clips: state.clips,
+      overlays: state.overlays,
+      audios: state.audios,
       titles: state.titles,
+      luts: state.luts,
       aspect: state.aspect,
       quality: state.quality,
       selectedTitleId: state.selectedTitleId,
@@ -122,7 +137,69 @@ export function Editor() {
       pendingSeek.current = null;
       engine.seek(at);
     }
-  }, [engine, state.clips, state.titles, state.aspect, state.quality, state.selectedTitleId]);
+  }, [engine, state.clips, state.overlays, state.audios, state.titles, state.luts, state.aspect, state.quality, state.selectedTitleId]);
+
+  useEffect(() => {
+    let cancel = false;
+    void loadProject()
+      .then((loaded) => {
+        if (cancel) return;
+        if (loaded && stateRef.current.clips.length === 0 && stateRef.current.audios.length === 0) {
+          const { project, urls } = loaded;
+          dispatch({
+            type: "replaceProject",
+            project: {
+              ...project,
+              clips: attachUrls(project.clips, urls),
+              overlays: attachUrls(project.overlays, urls),
+              audios: attachUrls(project.audios, urls),
+            },
+          });
+          if (project.clips.length || project.audios.length) toast.success("Montaggio riaperto");
+        }
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        if (!cancel) setStoreReady(true);
+      });
+    return () => {
+      cancel = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!storeReady) return;
+    const timer = window.setTimeout(() => {
+      const current = stateRef.current;
+      const media = new Map<string, Blob>();
+      const pending = [...current.clips, ...current.overlays, ...current.audios].map(async (item) => {
+        if (!item.url || media.has(item.mediaId)) return;
+        try {
+          const response = await fetch(item.url);
+          media.set(item.mediaId, await response.blob());
+        } catch {
+          // A missing blob is skipped. The rest of the project still saves.
+        }
+      });
+      void Promise.all(pending).then(() =>
+        saveProject(
+          {
+            version: 1,
+            aspect: current.aspect,
+            quality: current.quality,
+            clips: current.clips,
+            overlays: current.overlays,
+            audios: current.audios,
+            titles: current.titles,
+            markers: current.markers,
+            luts: current.luts,
+          },
+          media,
+        ).catch(() => undefined),
+      );
+    }, 700);
+    return () => window.clearTimeout(timer);
+  }, [storeReady, state.clips, state.overlays, state.audios, state.titles, state.markers, state.luts, state.aspect, state.quality]);
 
   useEffect(() => {
     const next = collectUrls(state);
@@ -275,16 +352,198 @@ export function Editor() {
 
   function removeCurrent() {
     const current = stateRef.current;
+    if (current.selectedOverlayId) {
+      dispatch({ type: "deleteOverlay", id: current.selectedOverlayId });
+      return;
+    }
     if (current.tool === "text" && current.selectedTitleId) {
       dispatch({ type: "deleteTitle", id: current.selectedTitleId });
+      return;
+    }
+    if (current.tool === "audio" && current.selectedAudioId) {
+      dispatch({ type: "deleteAudio", id: current.selectedAudioId });
       return;
     }
     if (current.selectedClipId) dispatch({ type: "deleteClip", id: current.selectedClipId });
   }
 
-  function patchClip(patch: ClipPatch, history: boolean) {
-    if (!state.selectedClipId) return;
-    dispatch({ type: "patchClip", id: state.selectedClipId, patch, history });
+  function localOf(clipId: string | null): number {
+    if (!clipId) return 0;
+    const overlay = state.overlays.find((item) => item.id === clipId);
+    if (overlay) return Math.max(0, (engine?.time ?? snap.time) - overlay.start);
+    const index = state.clips.findIndex((item) => item.id === clipId);
+    if (index < 0) return 0;
+    return Math.max(0, (engine?.time ?? snap.time) - clipStart(state.clips, index));
+  }
+
+  function patchActive(patch: ClipPatch, history: boolean) {
+    const current = stateRef.current;
+    if (current.selectedOverlayId) {
+      const clip = current.overlays.find((item) => item.id === current.selectedOverlayId);
+      const next = clip ? followKeyframe(clip, localOf(clip.id), patch) : patch;
+      dispatch({ type: "patchOverlay", id: current.selectedOverlayId, patch: next, history });
+      return;
+    }
+    if (!current.selectedClipId) return;
+    const clip = current.clips.find((item) => item.id === current.selectedClipId);
+    const next = clip ? followKeyframe(clip, localOf(clip.id), patch) : patch;
+    dispatch({ type: "patchClip", id: current.selectedClipId, patch: next, history });
+  }
+
+  function addKeyframe() {
+    const current = stateRef.current;
+    const clip = selectedClip(current);
+    if (!clip) return;
+    const time = localOf(clip.id);
+    const keyframes = touchKeyframe(clip.keyframes, time, { opacity: clip.opacity, scale: clip.transform.scale, exposure: clip.grade.exposure }, uid());
+    patchActive({ keyframes }, true);
+  }
+
+  async function freezeFrame() {
+    const playback = engineRef.current;
+    const current = stateRef.current;
+    if (!playback || current.clips.length === 0) return;
+    setBusy("Preparo il fermo immagine…");
+    try {
+      const blob = await playback.captureFrame();
+      if (!blob) throw new Error("frame");
+      const url = URL.createObjectURL(blob);
+      const size = projectSize(current.aspect, current.quality);
+      const still = createClip({
+        id: uid(),
+        mediaId: uid(),
+        name: "Fermo",
+        url,
+        duration: 2,
+        width: size.width,
+        height: size.height,
+        kind: "image",
+      });
+      const hit = current.clips.findIndex((item) => item.id === current.selectedClipId);
+      const index = hit >= 0 ? hit + 1 : current.clips.length;
+      dispatch({ type: "insertClip", clip: still, index });
+    } catch {
+      toast.error("Non riesco a catturare questo fotogramma.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function stabilizeClip() {
+    const current = stateRef.current;
+    const clip = current.clips.find((item) => item.id === current.selectedClipId);
+    if (!clip || clip.kind !== "video") return;
+    if (clip.stab.length) {
+      dispatch({ type: "patchClip", id: clip.id, patch: { stab: [] }, history: true });
+      return;
+    }
+    setBusy("Stabilizzo la clip…");
+    try {
+      const stab = await measureShake(clip.url, clip.inPoint, clip.outPoint);
+      dispatch({ type: "patchClip", id: clip.id, patch: { stab }, history: true });
+      toast.success(stab.length ? "Stabilizzazione pronta" : "Movimento troppo poco per stabilizzare");
+    } catch {
+      toast.error("Non riesco a stabilizzare questo video.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  function liftOverlay() {
+    const clip = stateRef.current.clips.find((item) => item.id === stateRef.current.selectedClipId);
+    if (!clip) return;
+    const start = clipStart(stateRef.current.clips, stateRef.current.clips.findIndex((item) => item.id === clip.id));
+    const overlay: OverlayClip = {
+      ...clip,
+      id: uid(),
+      start,
+      transform: { ...PIP_TRANSFORM },
+      transition: "cut",
+    };
+    dispatch({ type: "addOverlay", clip: overlay });
+  }
+
+  async function importAudio(list: File[]) {
+    const file = list[0];
+    if (!file) return;
+    setBusy("Leggo l’audio…");
+    try {
+      const clip = await fileToAudio(file, engineRef.current?.time ?? 0);
+      dispatch({ type: "addAudio", clip });
+      const peaks = await measurePeaks(clip.url);
+      if (peaks.length) dispatch({ type: "setPeaks", id: clip.id, peaks });
+      toast.success("Traccia audio aggiunta");
+    } catch {
+      toast.error("Non riesco a leggere questo audio.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function importOverlay(list: File[]) {
+    const file = list[0];
+    if (!file) return;
+    setBusy("Leggo la clip sopra…");
+    try {
+      const clip = await fileToClip(file);
+      const overlay: OverlayClip = { ...clip, start: engineRef.current?.time ?? 0, transform: { ...PIP_TRANSFORM } };
+      dispatch({ type: "addOverlay", clip: overlay });
+      rememberThumbs([clip]);
+    } catch {
+      toast.error("Non riesco a leggere questo video.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function importLut(file: File) {
+    try {
+      const text = await file.text();
+      const lut = parseCube(text, uid(), file.name);
+      if (!lut) {
+        toast.error("Questo file .cube non è una LUT 3D.");
+        return;
+      }
+      dispatch({ type: "addLut", lut });
+      patchActive({ lutId: lut.id }, true);
+      toast.success("LUT applicata");
+    } catch {
+      toast.error("Non riesco a leggere la LUT.");
+    }
+  }
+
+  async function toggleMic() {
+    if (micRef.current) {
+      micRef.current.stop();
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream);
+      const chunks: Blob[] = [];
+      recorder.ondataavailable = (event) => {
+        if (event.data.size) chunks.push(event.data);
+      };
+      recorder.onstop = () => {
+        stream.getTracks().forEach((track) => track.stop());
+        micRef.current = null;
+        setMicOn(false);
+        const blob = new Blob(chunks, { type: recorder.mimeType || "audio/webm" });
+        const file = new File([blob], "voce.webm", { type: blob.type });
+        void importAudio([file]);
+      };
+      micRef.current = recorder;
+      recorder.start();
+      setMicOn(true);
+    } catch {
+      toast.error("Il microfono non è disponibile.");
+    }
+  }
+
+  async function resetProject() {
+    await clearProject().catch(() => undefined);
+    dispatch({ type: "resetProject" });
+    toast.success("Montaggio nuovo");
   }
 
   function patchTitle(id: string, patch: TitlePatch, history: boolean) {
@@ -310,6 +569,11 @@ export function Editor() {
         size: 64,
         color: "#F6F1E8",
         font: "serif",
+        align: "center",
+        background: null,
+        stroke: false,
+        enter: "fade",
+        exit: "fade",
       }),
     });
   }
@@ -421,8 +685,13 @@ export function Editor() {
           </div>
           <TimelineView
             clips={state.clips}
+            overlays={state.overlays}
+            audios={state.audios}
             titles={state.titles}
+            markers={state.markers}
             selectedClipId={state.selectedClipId}
+            selectedOverlayId={state.selectedOverlayId}
+            selectedAudioId={state.selectedAudioId}
             selectedTitleId={state.selectedTitleId}
             playing={snap.playing}
             recording={snap.recording}
@@ -430,7 +699,17 @@ export function Editor() {
             engine={engine}
             onToggle={() => engine?.toggle()}
             onSelectClip={(id) => dispatch({ type: "selectClip", id })}
+            onSelectOverlay={(id) => dispatch({ type: "selectOverlay", id })}
+            onSelectAudio={(id) => dispatch({ type: "selectAudio", id })}
             onSelectTitle={(id) => dispatch({ type: "selectTitle", id })}
+            onTrim={(id, edge, value, history) => dispatch({ type: "setEdge", id, edge, value, history })}
+            onReorder={(id, index) => dispatch({ type: "moveClipTo", id, index })}
+            onMarker={() => {
+              const time = engine?.time ?? snap.time;
+              const near = state.markers.find((marker) => Math.abs(marker.time - time) < 0.2);
+              if (near) dispatch({ type: "deleteMarker", id: near.id });
+              else dispatch({ type: "addMarker", marker: { id: uid(), time, label: "Segno" } });
+            }}
           />
         </div>
 
@@ -464,21 +743,57 @@ export function Editor() {
                 time={snap.time}
                 canSplitNow={canSplit(state.clips, snap.time)}
                 onSplit={() => splitAt(engine?.time ?? snap.time)}
-                onDelete={() => clip && dispatch({ type: "deleteClip", id: clip.id })}
-                onDuplicate={() => clip && dispatch({ type: "duplicateClip", id: clip.id, newId: uid() })}
-                onMove={(dir) => clip && dispatch({ type: "moveClip", id: clip.id, dir })}
-                onTrim={(edge) => clip && dispatch({ type: "trimToPlayhead", id: clip.id, edge, time: engine?.time ?? snap.time })}
-                onPatch={patchClip}
-                onEdge={(edge, value, history) =>
-                  clip && dispatch({ type: "setEdge", id: clip.id, edge, value, history })
+                onDelete={() => {
+                  if (state.selectedOverlayId) dispatch({ type: "deleteOverlay", id: state.selectedOverlayId });
+                  else if (clip) dispatch({ type: "deleteClip", id: clip.id });
+                }}
+                onDuplicate={() => clip && !state.selectedOverlayId && dispatch({ type: "duplicateClip", id: clip.id, newId: uid() })}
+                onMove={(dir) => clip && !state.selectedOverlayId && dispatch({ type: "moveClip", id: clip.id, dir })}
+                onTrim={(edge) => clip && !state.selectedOverlayId && dispatch({ type: "trimToPlayhead", id: clip.id, edge, time: engine?.time ?? snap.time })}
+                onPatch={patchActive}
+                onEdge={(edge, value, history) => {
+                  if (!clip) return;
+                  const next = clampEdge(clip, edge, value);
+                  if (state.selectedOverlayId) patchActive(edge === "in" ? { inPoint: next.inPoint } : { outPoint: next.outPoint }, history);
+                  else dispatch({ type: "setEdge", id: clip.id, edge, value, history });
+                }}
+              />
+            ) : null}
+            {state.tool === "cut" && clip ? (
+              <ShapePanel
+                clip={clip}
+                local={localOf(clip.id)}
+                onPatch={patchActive}
+                onFreeze={() => void freezeFrame()}
+                onStabilize={() => void stabilizeClip()}
+                onOverlay={liftOverlay}
+                onImportOverlay={() => overlayFileRef.current?.click()}
+                onKeyframe={addKeyframe}
+                start={state.selectedOverlayId ? (clip as OverlayClip).start : undefined}
+                duration={duration}
+                onStart={
+                  state.selectedOverlayId
+                    ? (start, history) => {
+                        const id = state.selectedOverlayId;
+                        if (id) dispatch({ type: "patchOverlay", id, patch: { start }, history });
+                      }
+                    : undefined
                 }
               />
             ) : null}
             {state.tool === "color" ? (
               <ColorPanel
                 clip={clip}
-                onPatch={patchClip}
+                frame={frameRef.current}
+                luts={state.luts}
+                canPaste={state.gradeClipboard !== null}
+                onPatch={patchActive}
                 onApplyAll={(grade: Grade) => dispatch({ type: "applyGradeAll", grade })}
+                onCopy={() => clip && dispatch({ type: "copyGrade", grade: clip.grade })}
+                onPaste={() => clip && dispatch({ type: "pasteGrade", id: clip.id })}
+                onLut={(file) => void importLut(file)}
+                onClearLut={() => patchActive({ lutId: null }, true)}
+                onKeyframe={addKeyframe}
               />
             ) : null}
             {state.tool === "text" ? (
@@ -488,13 +803,27 @@ export function Editor() {
                 duration={duration}
                 time={engine?.time ?? snap.time}
                 onAdd={addTitle}
+                onAddMany={(titles: TitleCard[]) => dispatch({ type: "addTitles", titles })}
                 onSelect={(id) => dispatch({ type: "selectTitle", id })}
                 onPatch={patchTitle}
                 onDelete={(id) => dispatch({ type: "deleteTitle", id })}
               />
             ) : null}
-            {state.tool === "audio" ? <AudioPanel clip={clip} onPatch={patchClip} /> : null}
-            {state.tool === "speed" ? <SpeedPanel clip={clip} onPatch={patchClip} /> : null}
+            {state.tool === "audio" ? (
+              <AudioPanel
+                clip={state.selectedOverlayId ? null : clip}
+                audios={state.audios}
+                selectedAudioId={state.selectedAudioId}
+                recording={micOn}
+                onPatch={patchActive}
+                onSelectAudio={(id) => dispatch({ type: "selectAudio", id })}
+                onPatchAudio={(id, patch, history) => dispatch({ type: "patchAudio", id, patch, history })}
+                onDeleteAudio={(id) => dispatch({ type: "deleteAudio", id })}
+                onImport={() => audioRef.current?.click()}
+                onRecord={() => void toggleMic()}
+              />
+            ) : null}
+            {state.tool === "speed" ? <SpeedPanel clip={clip} onPatch={patchActive} /> : null}
             {state.tool === "export" ? (
               <ExportPanel
                 aspect={state.aspect}
@@ -505,12 +834,18 @@ export function Editor() {
                 progress={progress}
                 exported={exported}
                 error={exportError}
+                fastReady={fastExportSupported()}
                 onQuality={(quality) => dispatch({ type: "setQuality", quality })}
                 onExport={() => {
                   setExportError(null);
                   engine?.unlock();
                   engine?.startExport();
                 }}
+                onFast={() => {
+                  setExportError(null);
+                  void engine?.startFastExport();
+                }}
+                onReset={() => void resetProject()}
                 onCancel={() => engine?.cancelExport()}
                 onDownload={downloadExport}
                 onShare={() => void shareExport()}
@@ -530,6 +865,28 @@ export function Editor() {
           const files = Array.from(event.target.files ?? []);
           event.target.value = "";
           void importFiles(files);
+        }}
+      />
+      <input
+        ref={audioRef}
+        type="file"
+        accept="audio/*,video/*"
+        className="hidden"
+        onChange={(event) => {
+          const files = Array.from(event.target.files ?? []);
+          event.target.value = "";
+          void importAudio(files);
+        }}
+      />
+      <input
+        ref={overlayFileRef}
+        type="file"
+        accept="video/mp4,video/quicktime,video/webm,video/*"
+        className="hidden"
+        onChange={(event) => {
+          const files = Array.from(event.target.files ?? []);
+          event.target.value = "";
+          void importOverlay(files);
         }}
       />
 
